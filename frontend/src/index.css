@@ -1,0 +1,91 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ── Reset ──────────────────────────────────────────────── */
+*, *::before, *::after { box-sizing: border-box; }
+
+html, body, #root {
+  margin: 0;
+  padding: 0;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  background: #050810;
+  color: #fff;
+  font-family: 'Inter', sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* ── Scrollbar ──────────────────────────────────────────── */
+::-webkit-scrollbar        { width: 4px; }
+::-webkit-scrollbar-track  { background: rgba(255,255,255,.04); }
+::-webkit-scrollbar-thumb  { background: rgba(255,45,85,.5); border-radius: 2px; }
+
+/* ── Glassmorphism ──────────────────────────────────────── */
+.glass {
+  background: rgba(255,255,255,.05);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid rgba(255,255,255,.08);
+}
+
+/* ── Glow helpers ───────────────────────────────────────── */
+.glow-red  { box-shadow: 0 0 18px rgba(255,45,85,.55), 0 0 40px rgba(255,45,85,.2); }
+.glow-blue { box-shadow: 0 0 18px rgba(0,210,255,.55), 0 0 40px rgba(0,210,255,.2); }
+
+/* ── Marker ring pulse ──────────────────────────────────── */
+@keyframes ring-pulse {
+  0%   { transform: scale(1);   opacity: .9; }
+  50%  { transform: scale(1.6); opacity: .4; }
+  100% { transform: scale(1);   opacity: .9; }
+}
+.marker-ring { animation: ring-pulse 2.2s ease-in-out infinite; }
+
+/* ── Slide-in from right ────────────────────────────────── */
+@keyframes slideInRight {
+  from { transform: translateX(110%); opacity: 0; }
+  to   { transform: translateX(0);    opacity: 1; }
+}
+.slide-in-right { animation: slideInRight .35s cubic-bezier(.22,1,.36,1) forwards; }
+
+/* ── Fade in ────────────────────────────────────────────── */
+@keyframes fadeUp {
+  from { opacity: 0; transform: translateY(16px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.fade-up { animation: fadeUp .55s ease-out forwards; }
+
+/* ── Skeleton shimmer ───────────────────────────────────── */
+.skeleton {
+  background: linear-gradient(90deg,
+    rgba(255,255,255,.05) 25%,
+    rgba(255,255,255,.1)  50%,
+    rgba(255,255,255,.05) 75%);
+  background-size: 200% 100%;
+  animation: shimmer 1.6s linear infinite;
+}
+
+/* ── Spinner ────────────────────────────────────────────── */
+@keyframes spin-cw  { to { transform: rotate(360deg); } }
+@keyframes spin-ccw { to { transform: rotate(-360deg); } }
+.spin-cw  { animation: spin-cw  1s linear infinite; }
+.spin-ccw { animation: spin-ccw 1.4s linear infinite; }
+
+/* ── Line clamp utility ─────────────────────────────────── */
+.line-clamp-2 {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.line-clamp-3 {
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+/* ── Globe canvas fill ──────────────────────────────────── */
+.globe-wrap { position: absolute; inset: 0; }
+.globe-wrap canvas { display: block; }
