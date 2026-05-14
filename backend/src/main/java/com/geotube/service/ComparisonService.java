@@ -24,8 +24,8 @@ import java.util.stream.Collectors;
  * Aggregates per-video extractions into per-country summaries and generates
  * cross-country comparisons (similarities, differences, overview narratives).
  *
- * Uses Claude for narrative generation when an API key is configured;
- * otherwise falls back to deterministic set-based comparison.
+ * Uses Ollama (local) for narrative generation; falls back to Claude if
+ * API key is configured; otherwise deterministic set-based comparison.
  */
 @Service
 public class ComparisonService {
@@ -38,12 +38,14 @@ public class ComparisonService {
     @Value("${anthropic.api.url:https://api.anthropic.com}")
     private String anthropicApiUrl;
 
-    private final WebClient    webClient;
-    private final ObjectMapper objectMapper;
+    private final WebClient      webClient;
+    private final ObjectMapper   objectMapper;
+    private final OllamaService  ollamaService;
 
-    public ComparisonService(WebClient webClient, ObjectMapper objectMapper) {
-        this.webClient    = webClient;
-        this.objectMapper = objectMapper;
+    public ComparisonService(WebClient webClient, ObjectMapper objectMapper, OllamaService ollamaService) {
+        this.webClient     = webClient;
+        this.objectMapper  = objectMapper;
+        this.ollamaService = ollamaService;
     }
 
     /**
@@ -65,9 +67,16 @@ public class ComparisonService {
             summaries.put(e.getKey(), aggregateCountry(e.getValue(), schema));
         }
 
-        // 2. Generate comparison narrative
+        // 2. Generate comparison narrative — Ollama first, Claude second, rule-based fallback
         Map<String, Object> narrative;
-        if (isClaudeAvailable()) {
+        if (ollamaService.isAvailable()) {
+            try {
+                narrative = generateWithOllama(query, domain, summaries);
+            } catch (Exception ex) {
+                log.warn("Ollama comparison failed, trying rule-based: {}", ex.getMessage());
+                narrative = generateRuleBased(summaries, schema);
+            }
+        } else if (isClaudeAvailable()) {
             try {
                 narrative = generateWithClaude(query, domain, summaries);
             } catch (Exception ex) {
@@ -124,6 +133,38 @@ public class ComparisonService {
             }
         }
         return agg;
+    }
+
+    // ── Ollama narrative generation ───────────────────────────────────────
+
+    private Map<String, Object> generateWithOllama(String query, String domain,
+                                                    Map<String, Map<String, Object>> summaries) throws Exception {
+        String summaryJson = objectMapper.writeValueAsString(summaries);
+        String prompt = String.format("""
+                You are a cultural analyst comparing how different countries approach "%s" (%s domain).
+
+                Country summaries (aggregated from video analysis):
+                %s
+
+                Generate a JSON response with exactly these three keys:
+                {
+                  "overview": ["one sentence per country describing its unique approach"],
+                  "similarities": ["bullet point of shared trait"],
+                  "differences": ["bullet point of contrasting trait between countries"]
+                }
+
+                Rules:
+                - overview: one item per country (mention country name)
+                - similarities: 3-5 items of common ground across ALL countries
+                - differences: 4-6 items of notable contrasts (mention country names)
+                - Be specific and insightful, not generic
+                - Return ONLY valid JSON, no markdown, no explanation
+                """, query, domain, summaryJson);
+
+        String responseText = ollamaService.generate(prompt);
+        String cleaned = responseText.replaceAll("(?s)```(?:json)?\\s*", "").replaceAll("```", "").trim();
+        JsonNode parsed = objectMapper.readTree(cleaned);
+        return objectMapper.convertValue(parsed, Map.class);
     }
 
     // ── Claude narrative generation ───────────────────────────────────────

@@ -50,16 +50,18 @@ public class AnalysisService {
     @Value("${anthropic.api.url:https://api.anthropic.com}")
     private String anthropicApiUrl;
 
-    private final VideoRepository         videoRepository;
-    private final VideoAnalysisRepository videoAnalysisRepository;
-    private final ComparisonCacheRepository comparisonCacheRepository;
-    private final QueryClassifierService  classifierService;
-    private final SchemaService           schemaService;
-    private final TranscriptService       transcriptService;
-    private final ExtractionService       extractionService;
-    private final ComparisonService       comparisonService;
-    private final WebClient               webClient;
-    private final ObjectMapper            objectMapper;
+    private final VideoRepository            videoRepository;
+    private final VideoAnalysisRepository    videoAnalysisRepository;
+    private final ComparisonCacheRepository  comparisonCacheRepository;
+    private final QueryClassifierService     classifierService;
+    private final SchemaService              schemaService;
+    private final TranscriptService          transcriptService;
+    private final ExtractionService          extractionService;
+    private final ComparisonService          comparisonService;
+    private final OllamaService              ollamaService;
+    private final VisualizationDataService   vizService;
+    private final WebClient                  webClient;
+    private final ObjectMapper               objectMapper;
 
     public AnalysisService(VideoRepository videoRepository,
                            VideoAnalysisRepository videoAnalysisRepository,
@@ -69,6 +71,8 @@ public class AnalysisService {
                            TranscriptService transcriptService,
                            ExtractionService extractionService,
                            ComparisonService comparisonService,
+                           OllamaService ollamaService,
+                           VisualizationDataService vizService,
                            WebClient webClient,
                            ObjectMapper objectMapper) {
         this.videoRepository          = videoRepository;
@@ -79,6 +83,8 @@ public class AnalysisService {
         this.transcriptService        = transcriptService;
         this.extractionService        = extractionService;
         this.comparisonService        = comparisonService;
+        this.ollamaService            = ollamaService;
+        this.vizService               = vizService;
         this.webClient                = webClient;
         this.objectMapper             = objectMapper;
     }
@@ -120,10 +126,11 @@ public class AnalysisService {
                 extractions.add(attrs);
 
                 Map<String, Object> vs = new LinkedHashMap<>();
-                vs.put("videoId",   video.getVideoId());
-                vs.put("title",     video.getTitle());
-                vs.put("thumbnail", video.getThumbnail());
-                vs.put("attributes", attrs);
+                vs.put("videoId",     video.getVideoId());
+                vs.put("title",       video.getTitle());
+                vs.put("thumbnail",   video.getThumbnail());
+                vs.put("publishedAt", video.getPublishedAt());
+                vs.put("attributes",  attrs);
                 videoSummaries.add(vs);
             }
 
@@ -159,6 +166,13 @@ public class AnalysisService {
         dashboard.put("countries",  countryData);
         dashboard.put("comparison", comparison);
 
+        // 7b. Append visualization-ready payload (non-blocking enrichment)
+        try {
+            dashboard.put("vizData", vizService.buildAll(dashboard));
+        } catch (Exception e) {
+            log.warn("Visualization data build failed (non-fatal): {}", e.getMessage());
+        }
+
         // 8. Cache
         ComparisonCache entry = new ComparisonCache();
         entry.setQuery(query);
@@ -176,57 +190,100 @@ public class AnalysisService {
     }
 
     public Map<String, Object> chat(ChatRequest request) {
-        if (!isClaudeAvailable()) {
-            return Map.of("answer",
-                "AI chat requires an Anthropic API key. " +
-                "Set ANTHROPIC_API_KEY in the backend .env file to enable this feature.");
+        String contextSummary = buildContextSummary(request);
+        String prompt = String.format("""
+                You are a cultural analyst helping users understand comparisons between countries.
+
+                Analysis context:
+                Query: %s
+                Countries: %s
+                %s
+
+                User question: %s
+
+                Instructions:
+                - Provide a clear, insightful, concise answer (2-4 sentences).
+                - Focus on cultural and regional nuances. Be specific about countries.
+                - Do not include any thinking or reasoning tags in your response.
+
+                LANGUAGE RULE — follow this exactly:
+                If the user question contains any of these Telugu words in English letters:
+                "lo", "enti", "untundi", "chala", "ekkuva", "anni", "oka", "rendu", "bagundi",
+                "chepu", "cheppu", "veru", "kaadu", "aithe", "kooda", "matram", "undi", "ledu",
+                "yevari", "adenti", "ee", "meeru", "vadiki", "valla", "chestaru", "untayi"
+                → reply ONLY in Tenglish (Telugu words spelled in English letters).
+
+                Tenglish grammar — use these exact patterns:
+                - "X lo" = in X            → "India lo", "Japan lo"
+                - "chala" = very           → "chala bagundi", "chala ekkuva"
+                - "ekkuva" = more          → "variety ekkuva untundi"
+                - "takkuva" = less         → "cost takkuva untundi"
+                - "untundi" = there is     → "fresh food untundi"
+                - "untayi" = there are     → "chala options untayi"
+                - "chestaru" = they do     → "spices use chestaru"
+                - "istaru" = they prefer   → "sweet flavors istaru"
+                - "aithe" = whereas/but    → "India lo spicy, Japan lo aithe mild"
+                - "kooda" = also/too       → "Italy lo kooda similar"
+                - NEVER write: "kulothe", "asa untayi", "dhrama dhrao", "ra honey" — these are wrong
+
+                Correct Tenglish examples:
+                Q: "ee rendu countries lo common ga enti?"
+                A: "Rendu countries lo kooda semolina-based dishes chala popular ga untayi, quick ga prepare cheyyadam important ga feel avutaru. Spices use kooda rendu lo similar ga untundi."
+
+                Q: "yevari breakfast lo ekkuva variety untundi?"
+                A: "India lo breakfast variety chala ekkuva untundi — idli, dosa, upma, paratha anni options untayi. Japan lo aithe simple ga rice tho miso soup matrame untundi."
+
+                Q: "yevari food costly ga untundi?"
+                A: "Japan lo food prices chala ekkuva untayi, oka simple meal kooda costly ga untundi. India lo same quality food chala takkuva cost lo dorikindi."
+
+                IMPORTANT: Answer must be based ONLY on the extracted data above. Do not invent ingredients or facts.
+                If the question is in plain English, answer in plain English.
+                If the question is in Telugu script, answer in Telugu script.
+                """,
+                request.getQuery(),
+                String.join(", ", request.getCountries()),
+                contextSummary,
+                request.getQuestion());
+
+        // Prefer Ollama (local inference, no API key required)
+        if (ollamaService.isAvailable()) {
+            try {
+                String answer = ollamaService.generate(prompt);
+                return Map.of("answer", answer.trim());
+            } catch (Exception e) {
+                log.warn("Ollama chat failed, trying Claude: {}", e.getMessage());
+            }
         }
 
-        try {
-            String contextSummary = buildContextSummary(request);
-            String prompt = String.format("""
-                    You are a cultural analyst helping users understand comparisons between countries.
-
-                    Analysis context:
-                    Query: %s
-                    Countries: %s
-                    %s
-
-                    User question: %s
-
-                    Provide a clear, insightful, concise answer (2-4 sentences).
-                    Focus on cultural and regional nuances. Be specific about countries.
-                    """,
-                    request.getQuery(),
-                    String.join(", ", request.getCountries()),
-                    contextSummary,
-                    request.getQuestion());
-
-            Map<String, Object> body = Map.of(
-                "model",      "claude-sonnet-4-6",
-                "max_tokens", 512,
-                "messages",   List.of(Map.of("role", "user", "content", prompt))
-            );
-
-            String resp = webClient.post()
-                    .uri(anthropicApiUrl + "/v1/messages")
-                    .header("x-api-key",        anthropicApiKey)
-                    .header("anthropic-version", "2023-06-01")
-                    .contentType(MediaType.APPLICATION_JSON)
-                    .bodyValue(body)
-                    .retrieve()
-                    .bodyToMono(String.class)
-                    .timeout(Duration.ofSeconds(30))
-                    .block();
-
-            JsonNode root   = objectMapper.readTree(resp);
-            String   answer = root.path("content").get(0).path("text").asText();
-            return Map.of("answer", answer);
-
-        } catch (Exception e) {
-            log.error("Chat request failed: {}", e.getMessage(), e);
-            return Map.of("answer", "Sorry, I couldn't process your question right now. Please try again.");
+        // Legacy fallback: Claude API
+        if (isClaudeAvailable()) {
+            try {
+                Map<String, Object> body = Map.of(
+                    "model",      "claude-sonnet-4-6",
+                    "max_tokens", 512,
+                    "messages",   List.of(Map.of("role", "user", "content", prompt))
+                );
+                String resp = webClient.post()
+                        .uri(anthropicApiUrl + "/v1/messages")
+                        .header("x-api-key",        anthropicApiKey)
+                        .header("anthropic-version", "2023-06-01")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .bodyValue(body)
+                        .retrieve()
+                        .bodyToMono(String.class)
+                        .timeout(Duration.ofSeconds(30))
+                        .block();
+                JsonNode root   = objectMapper.readTree(resp);
+                String   answer = root.path("content").get(0).path("text").asText();
+                return Map.of("answer", answer);
+            } catch (Exception e) {
+                log.error("Claude chat request failed: {}", e.getMessage(), e);
+            }
         }
+
+        return Map.of("answer",
+            "AI chat requires Ollama running locally (http://localhost:11434) " +
+            "or an Anthropic API key configured in ANTHROPIC_API_KEY.");
     }
 
     // ── Helpers ───────────────────────────────────────────────────────────
@@ -275,10 +332,44 @@ public class AnalysisService {
         if (request.getAnalysisContext() == null) return "";
         try {
             Map<String, Object> ctx = (Map<String, Object>) request.getAnalysisContext();
-            Object comparison = ctx.get("comparison");
-            if (comparison != null) {
-                return "Comparison data: " + objectMapper.writeValueAsString(comparison);
+            StringBuilder sb = new StringBuilder();
+
+            // 1. Per-country extracted attributes — the real data the model must use
+            List<Map<String, Object>> countries = (List<Map<String, Object>>) ctx.get("countries");
+            if (countries != null) {
+                sb.append("Extracted data per country (USE ONLY THIS — do not invent facts):\n");
+                for (Map<String, Object> c : countries) {
+                    String name = (String) c.get("country");
+                    Map<String, Object> summary = (Map<String, Object>) c.get("summary");
+                    if (summary == null) continue;
+                    sb.append("  ").append(name).append(": ");
+                    summary.forEach((k, v) -> {
+                        if (v instanceof List<?> list && !list.isEmpty()) {
+                            sb.append(k).append("=[")
+                              .append(list.stream().limit(4).map(Object::toString).collect(java.util.stream.Collectors.joining(", ")))
+                              .append("] ");
+                        } else if (v instanceof String s && !s.isBlank()) {
+                            sb.append(k).append("=").append(s).append(" ");
+                        }
+                    });
+                    sb.append("\n");
+                }
             }
+
+            // 2. Concise narrative for similarities / differences
+            Map<String, Object> comparison = (Map<String, Object>) ctx.get("comparison");
+            if (comparison != null) {
+                Object sims = comparison.get("similarities");
+                if (sims instanceof List<?> list && !list.isEmpty()) {
+                    sb.append("Similarities: ").append(list.stream().limit(2).map(Object::toString).collect(java.util.stream.Collectors.joining("; "))).append("\n");
+                }
+                Object diffs = comparison.get("differences");
+                if (diffs instanceof List<?> list && !list.isEmpty()) {
+                    sb.append("Differences: ").append(list.stream().limit(2).map(Object::toString).collect(java.util.stream.Collectors.joining("; "))).append("\n");
+                }
+            }
+
+            return sb.toString();
         } catch (Exception ignored) {}
         return "";
     }
