@@ -4,12 +4,9 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.beans.factory.annotation.Value;
-import org.springframework.http.MediaType;
 import org.springframework.stereotype.Service;
 import org.springframework.web.reactive.function.client.WebClient;
 
-import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashMap;
@@ -32,19 +29,13 @@ public class ExtractionService {
 
     private static final Logger log = LoggerFactory.getLogger(ExtractionService.class);
 
-    @Value("${anthropic.api.key:}")
-    private String anthropicApiKey;
-
-    @Value("${anthropic.api.url:https://api.anthropic.com}")
-    private String anthropicApiUrl;
-
-    private final WebClient    webClient;
-    private final ObjectMapper objectMapper;
-    private final OllamaService ollamaService;
+    private final WebClient      webClient;
+    private final ObjectMapper   objectMapper;
+    private final OllamaService  ollamaService;
 
     public ExtractionService(WebClient webClient, ObjectMapper objectMapper, OllamaService ollamaService) {
-        this.webClient     = webClient;
-        this.objectMapper  = objectMapper;
+        this.webClient    = webClient;
+        this.objectMapper = objectMapper;
         this.ollamaService = ollamaService;
     }
 
@@ -62,20 +53,11 @@ public class ExtractionService {
     public Map<String, Object> extract(String query, String domain,
                                        Map<String, Object> schema,
                                        String transcript, String title, String description) {
-        // Prefer Ollama (local, no API key needed)
         if (ollamaService.isAvailable()) {
             try {
                 return extractWithOllama(query, domain, schema, transcript, title, description);
             } catch (Exception e) {
-                log.warn("Ollama extraction failed for '{}', trying fallback: {}", title, e.getMessage());
-            }
-        }
-        // Legacy fallback: Claude (if API key configured)
-        if (isClaudeAvailable()) {
-            try {
-                return extractWithClaude(query, domain, schema, transcript, title, description);
-            } catch (Exception e) {
-                log.warn("Claude extraction failed for '{}', using rule-based fallback: {}", title, e.getMessage());
+                log.warn("Ollama extraction failed for '{}', using rule-based fallback: {}", title, e.getMessage());
             }
         }
         return extractRuleBased(domain, schema, transcript, title, description);
@@ -104,48 +86,6 @@ public class ExtractionService {
 
         String responseText = ollamaService.generate(prompt);
         return parseJsonToMap(responseText, schema);
-    }
-
-    // ── Claude-based extraction ───────────────────────────────────────────
-
-    private Map<String, Object> extractWithClaude(String query, String domain,
-                                                   Map<String, Object> schema,
-                                                   String transcript, String title, String description) throws Exception {
-        String schemaJson  = objectMapper.writeValueAsString(schema);
-        String contentText = buildContentText(transcript, title, description);
-
-        String prompt = String.format("""
-                You are a video content analyst. Extract structured information from this YouTube video about "%s" (%s domain).
-
-                Video content:
-                %s
-
-                Extract data into this exact JSON schema (fill null for unknown fields, max 5 items per list):
-                %s
-
-                Return ONLY valid JSON matching the schema. No explanation, no markdown fences.
-                """, query, domain, contentText, schemaJson);
-
-        Map<String, Object> requestBody = Map.of(
-            "model",      "claude-haiku-4-5-20251001",
-            "max_tokens", 1024,
-            "messages",   List.of(Map.of("role", "user", "content", prompt))
-        );
-
-        String responseBody = webClient.post()
-                .uri(anthropicApiUrl + "/v1/messages")
-                .header("x-api-key",          anthropicApiKey)
-                .header("anthropic-version",   "2023-06-01")
-                .contentType(MediaType.APPLICATION_JSON)
-                .bodyValue(requestBody)
-                .retrieve()
-                .bodyToMono(String.class)
-                .timeout(Duration.ofSeconds(30))
-                .block();
-
-        JsonNode root    = objectMapper.readTree(responseBody);
-        String   jsonStr = root.path("content").get(0).path("text").asText();
-        return parseJsonToMap(jsonStr, schema);
     }
 
     // ── Rule-based fallback ───────────────────────────────────────────────
@@ -216,10 +156,6 @@ public class ExtractionService {
     }
 
     // ── Helpers ───────────────────────────────────────────────────────────
-
-    private boolean isClaudeAvailable() {
-        return anthropicApiKey != null && !anthropicApiKey.isBlank();
-    }
 
     private String buildContentText(String transcript, String title, String description) {
         StringBuilder sb = new StringBuilder();
