@@ -58,6 +58,6 @@ export const analyzeChat = async (query, countries, question, analysisContext) =
     countries,
     question,
     analysisContext: analysisContext || null,
-  }, { timeout: 30000 });
+  }, { timeout: 120000 }); // Ollama local inference can take 60–90s
   return data;
 };
