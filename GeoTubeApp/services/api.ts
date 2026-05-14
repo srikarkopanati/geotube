@@ -5,9 +5,24 @@ import { Platform } from 'react-native';
 const API_PORT = 8080;
 
 function getBaseUrl() {
-  const configuredUrl = Constants.expoConfig?.extra?.apiBaseUrl;
+  const configuredUrl =
+    process.env.EXPO_PUBLIC_API_BASE_URL ||
+    Constants.expoConfig?.extra?.apiBaseUrl;
+
   if (typeof configuredUrl === 'string' && configuredUrl.length > 0) {
     return configuredUrl;
+  }
+
+  const expoHost =
+    Constants.expoConfig?.hostUri ||
+    Constants.manifest2?.extra?.expoGo?.debuggerHost ||
+    Constants.manifest?.debuggerHost;
+
+  if (typeof expoHost === 'string' && expoHost.length > 0) {
+    const host = expoHost.split(':')[0];
+    if (host && host !== 'localhost' && host !== '127.0.0.1') {
+      return `http://${host}:${API_PORT}`;
+    }
   }
 
   if (Platform.OS === 'android') {
