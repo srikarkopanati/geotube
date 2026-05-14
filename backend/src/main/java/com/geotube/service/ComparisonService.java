@@ -4,12 +4,9 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.beans.factory.annotation.Value;
-import org.springframework.http.MediaType;
 import org.springframework.stereotype.Service;
 import org.springframework.web.reactive.function.client.WebClient;
 
-import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.HashMap;
@@ -31,12 +28,6 @@ import java.util.stream.Collectors;
 public class ComparisonService {
 
     private static final Logger log = LoggerFactory.getLogger(ComparisonService.class);
-
-    @Value("${anthropic.api.key:}")
-    private String anthropicApiKey;
-
-    @Value("${anthropic.api.url:https://api.anthropic.com}")
-    private String anthropicApiUrl;
 
     private final WebClient      webClient;
     private final ObjectMapper   objectMapper;
@@ -67,20 +58,13 @@ public class ComparisonService {
             summaries.put(e.getKey(), aggregateCountry(e.getValue(), schema));
         }
 
-        // 2. Generate comparison narrative — Ollama first, Claude second, rule-based fallback
+        // 2. Generate comparison narrative — Ollama if available, else rule-based fallback
         Map<String, Object> narrative;
         if (ollamaService.isAvailable()) {
             try {
                 narrative = generateWithOllama(query, domain, summaries);
             } catch (Exception ex) {
-                log.warn("Ollama comparison failed, trying rule-based: {}", ex.getMessage());
-                narrative = generateRuleBased(summaries, schema);
-            }
-        } else if (isClaudeAvailable()) {
-            try {
-                narrative = generateWithClaude(query, domain, summaries);
-            } catch (Exception ex) {
-                log.warn("Claude comparison failed, using rule-based: {}", ex.getMessage());
+                log.warn("Ollama comparison failed, using rule-based fallback: {}", ex.getMessage());
                 narrative = generateRuleBased(summaries, schema);
             }
         } else {
@@ -167,56 +151,6 @@ public class ComparisonService {
         return objectMapper.convertValue(parsed, Map.class);
     }
 
-    // ── Claude narrative generation ───────────────────────────────────────
-
-    private Map<String, Object> generateWithClaude(String query, String domain,
-                                                    Map<String, Map<String, Object>> summaries) throws Exception {
-        String summaryJson = objectMapper.writeValueAsString(summaries);
-        String prompt = String.format("""
-                You are a cultural analyst comparing how different countries approach "%s" (%s domain).
-
-                Country summaries (aggregated from video analysis):
-                %s
-
-                Generate a JSON response with exactly these three keys:
-                {
-                  "overview": ["one sentence per country describing its unique approach"],
-                  "similarities": ["bullet point of shared trait"],
-                  "differences": ["bullet point of contrasting trait between countries"]
-                }
-
-                Rules:
-                - overview: one item per country (mention country name)
-                - similarities: 3-5 items of common ground across ALL countries
-                - differences: 4-6 items of notable contrasts (mention country names)
-                - Be specific and insightful, not generic
-                - Return ONLY valid JSON, no markdown, no explanation
-                """, query, domain, summaryJson);
-
-        Map<String, Object> body = Map.of(
-            "model",    "claude-haiku-4-5-20251001",
-            "max_tokens", 1024,
-            "messages", List.of(Map.of("role", "user", "content", prompt))
-        );
-
-        String resp = webClient.post()
-                .uri(anthropicApiUrl + "/v1/messages")
-                .header("x-api-key",        anthropicApiKey)
-                .header("anthropic-version", "2023-06-01")
-                .contentType(MediaType.APPLICATION_JSON)
-                .bodyValue(body)
-                .retrieve()
-                .bodyToMono(String.class)
-                .timeout(Duration.ofSeconds(30))
-                .block();
-
-        JsonNode root    = objectMapper.readTree(resp);
-        String   jsonStr = root.path("content").get(0).path("text").asText()
-                               .replaceAll("(?s)```(?:json)?\\s*", "").replaceAll("```", "").trim();
-        JsonNode parsed  = objectMapper.readTree(jsonStr);
-        return objectMapper.convertValue(parsed, Map.class);
-    }
-
     // ── Rule-based comparison ─────────────────────────────────────────────
 
     @SuppressWarnings("unchecked")
@@ -291,10 +225,6 @@ public class ComparisonService {
     }
 
     // ── Micro-helpers ─────────────────────────────────────────────────────
-
-    private boolean isClaudeAvailable() {
-        return anthropicApiKey != null && !anthropicApiKey.isBlank();
-    }
 
     @SuppressWarnings("unchecked")
     private String buildCountryDesc(String country, Map<String, Object> summary) {

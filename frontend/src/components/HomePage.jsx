@@ -48,8 +48,17 @@ export default function HomePage() {
       {/* ── Globe (full-page background) ─────────────────────── */}
       <GlobeView />
 
-      {/* ── Top navigation bar ───────────────────────────────── */}
-      <header className="absolute top-0 left-0 right-0 z-20 px-6 pt-5 flex items-center gap-4">
+{/* ── Top navigation bar ───────────────────────────────── */}
+      <header className="absolute top-0 left-0 right-0 z-20 px-6 pt-5 pb-3 flex items-center gap-4"
+        style={{
+          background: 'linear-gradient(180deg, rgba(5,8,16,0.85) 0%, transparent 100%)',
+          backdropFilter: 'blur(8px)',
+        }}>
+
+        {/* Thin bottom accent line */}
+        <div className="absolute bottom-0 left-0 right-0 h-px"
+          style={{ background: 'linear-gradient(90deg, transparent 0%, rgba(255,255,255,0.05) 30%, rgba(255,255,255,0.05) 70%, transparent 100%)' }} />
+
         {/* Logo */}
         <div className="flex items-center gap-2.5 flex-shrink-0">
           <div className="w-8 h-8 rounded-full bg-gradient-to-br from-red-500 to-red-700 flex items-center justify-center glow-red">
@@ -59,7 +68,7 @@ export default function HomePage() {
             </svg>
           </div>
           <span className="text-white font-bold text-xl tracking-wide">
-            Geo<span className="text-red-500">Tube</span>
+            Geo<span className="text-gradient-red">Tube</span>
           </span>
         </div>
 
