@@ -25,7 +25,6 @@ const initialState = {
   activeVideo: null,
 
   // ── Comparison selection ─────────────────────────────────────────────────
-  // Active when user wants to pick countries for comparison
   compareModeOn: false,
   comparisonSelected: [],   // [{ label, lat, lng }]  — max 4
 
@@ -35,10 +34,23 @@ const initialState = {
   analysisLoading: false,
   analysisProgress: '',
   analysisError: null,
-  // Which country the user clicked on in the globe while in analysis mode
   analysisSelectedCountry: null,
-  // Which video is playing in the analysis left-panel
   analysisActiveVideo: null,
+
+  // ── App mode (feature selector) ──────────────────────────────────────────
+  // 'explore' | 'timeline' | 'trending'
+  appMode: 'explore',
+
+  // ── Time Travel mode ─────────────────────────────────────────────────────
+  selectedYear: 2020,
+  timelineMarkers: [],
+  timelineLoading: false,
+
+  // ── Trending Live mode ───────────────────────────────────────────────────
+  trendingData: [],          // array of TrendingResponseDTO
+  trendingLoading: false,
+  trendingLastRefresh: null, // epoch ms
+  activeTrendingRegion: null, // currently selected region in trending panel
 
   // ── UI ──────────────────────────────────────────────────────────────────
   loading: false,
@@ -85,11 +97,7 @@ function reducer(state, action) {
 
     // ── Comparison mode ───────────────────────────────────────────────────
     case 'TOGGLE_COMPARE_MODE':
-      return {
-        ...state,
-        compareModeOn: !state.compareModeOn,
-        comparisonSelected: [],
-      };
+      return { ...state, compareModeOn: !state.compareModeOn, comparisonSelected: [] };
 
     case 'TOGGLE_COUNTRY_SELECTION': {
       const { label, lat, lng } = action.payload;
@@ -100,7 +108,7 @@ function reducer(state, action) {
           comparisonSelected: state.comparisonSelected.filter(c => c.label !== label),
         };
       }
-      if (state.comparisonSelected.length >= 4) return state; // max 4
+      if (state.comparisonSelected.length >= 4) return state;
       return {
         ...state,
         comparisonSelected: [...state.comparisonSelected, { label, lat, lng }],
@@ -141,7 +149,6 @@ function reducer(state, action) {
         analysisData: action.payload,
         analysisLoading: false,
         analysisProgress: '',
-        // Default to first country
         analysisSelectedCountry: action.payload?.countries?.[0]?.country || null,
       };
 
@@ -157,6 +164,41 @@ function reducer(state, action) {
     case 'SET_ANALYSIS_ACTIVE_VIDEO':
       return { ...state, analysisActiveVideo: action.payload };
 
+    // ── App mode ──────────────────────────────────────────────────────────
+    case 'SET_APP_MODE':
+      return {
+        ...state,
+        appMode: action.payload,
+        // Clear mode-specific ephemeral state on switch
+        activeTrendingRegion: null,
+        // Keep timeline/trending data so switching back is instant
+      };
+
+    // ── Time Travel ───────────────────────────────────────────────────────
+    case 'SET_YEAR':
+      return { ...state, selectedYear: action.payload };
+
+    case 'SET_TIMELINE_MARKERS':
+      return { ...state, timelineMarkers: action.payload, timelineLoading: false };
+
+    case 'SET_TIMELINE_LOADING':
+      return { ...state, timelineLoading: action.payload };
+
+    // ── Trending Live ─────────────────────────────────────────────────────
+    case 'SET_TRENDING_DATA':
+      return {
+        ...state,
+        trendingData: action.payload,
+        trendingLoading: false,
+        trendingLastRefresh: Date.now(),
+      };
+
+    case 'SET_TRENDING_LOADING':
+      return { ...state, trendingLoading: action.payload };
+
+    case 'SET_ACTIVE_TRENDING_REGION':
+      return { ...state, activeTrendingRegion: action.payload };
+
     default:
       return state;
   }
@@ -171,7 +213,6 @@ export function AppProvider({ children }) {
     dispatch({ type: 'SET_LOADING', payload: true, message: 'Searching YouTube for geotagged videos…' });
     dispatch({ type: 'SET_QUERY', payload: query });
     dispatch({ type: 'CLOSE_SIDEBAR' });
-    // Reset comparison when running a new search
     dispatch({ type: 'CLEAR_COMPARISON' });
     if (state.analysisMode) dispatch({ type: 'EXIT_ANALYSIS_MODE' });
 
@@ -259,7 +300,7 @@ export function AppProvider({ children }) {
   const closeSidebar = useCallback(()    => dispatch({ type: 'CLOSE_SIDEBAR' }), []);
   const clearError   = useCallback(()    => dispatch({ type: 'CLEAR_ERROR' }), []);
 
-  // ── New comparison operations ─────────────────────────────────────────
+  // ── Comparison operations ─────────────────────────────────────────────
 
   const toggleCompareMode = useCallback(() => {
     dispatch({ type: 'TOGGLE_COMPARE_MODE' });
@@ -289,7 +330,6 @@ export function AppProvider({ children }) {
     dispatch({ type: 'ENTER_ANALYSIS_MODE' });
     const countries = state.comparisonSelected.map(c => c.label);
 
-    // Simulate progressive status messages while the backend processes
     const steps = [
       'Fetching video transcripts…',
       'Extracting metadata…',
@@ -313,6 +353,60 @@ export function AppProvider({ children }) {
     }
   }, [state.query, state.comparisonSelected]);
 
+  // ── Time Travel operations ────────────────────────────────────────────
+
+  const fetchTimeline = useCallback(async (query, year) => {
+    if (!query) return;
+    dispatch({ type: 'SET_TIMELINE_LOADING', payload: true });
+    try {
+      const data = await api.getTimeline(query, year);
+      const markers = data.map(d => ({
+        lat: d.latitude,
+        lng: d.longitude,
+        label: d.country,
+        count: d.videoCount,
+        type: 'country',
+        data: d,
+        isTimeline: true,
+      }));
+      dispatch({ type: 'SET_TIMELINE_MARKERS', payload: markers });
+    } catch (err) {
+      dispatch({ type: 'SET_TIMELINE_LOADING', payload: false });
+    }
+  }, []);
+
+  const setYear = useCallback(async year => {
+    dispatch({ type: 'SET_YEAR', payload: year });
+    if (state.appMode === 'timeline' && state.query) {
+      await fetchTimeline(state.query, year);
+    }
+  }, [state.appMode, state.query, fetchTimeline]);
+
+  // ── Trending Live operations ──────────────────────────────────────────
+
+  const fetchTrending = useCallback(async () => {
+    dispatch({ type: 'SET_TRENDING_LOADING', payload: true });
+    try {
+      const data = await api.getTrending();
+      dispatch({ type: 'SET_TRENDING_DATA', payload: data });
+    } catch (err) {
+      dispatch({ type: 'SET_TRENDING_LOADING', payload: false });
+    }
+  }, []);
+
+  const setActiveTrendingRegion = useCallback(region => {
+    dispatch({ type: 'SET_ACTIVE_TRENDING_REGION', payload: region });
+  }, []);
+
+  const setAppMode = useCallback(async mode => {
+    dispatch({ type: 'SET_APP_MODE', payload: mode });
+    if (mode === 'trending') {
+      await fetchTrending();
+    } else if (mode === 'timeline' && state.query) {
+      await fetchTimeline(state.query, state.selectedYear);
+    }
+  }, [state.query, state.selectedYear, fetchTrending, fetchTimeline]);
+
   return (
     <AppContext.Provider
       value={{
@@ -320,10 +414,14 @@ export function AppProvider({ children }) {
         // Existing
         search, selectCountry, selectCity, goBack,
         openVideo, closeVideo, closeSidebar, clearError,
-        // New comparison
+        // Comparison
         toggleCompareMode, toggleCountrySelection, clearComparison,
         runComparison, exitAnalysisMode,
         setAnalysisSelectedCountry, setAnalysisActiveVideo,
+        // Time Travel
+        setAppMode, setYear, fetchTimeline,
+        // Trending
+        fetchTrending, setActiveTrendingRegion,
       }}
     >
       {children}

@@ -12,8 +12,17 @@ const ALTITUDE = { global: 2.5, country: 1.5, city: 1.0 };
  */
 export default function GlobeView({ containerWidth, analysisGlobe = false }) {
   const globeRef = useRef();
-  const { state, selectCountry, selectCity, toggleCountrySelection, setAnalysisSelectedCountry } = useApp();
-  const { level, markers, query, compareModeOn, comparisonSelected, analysisSelectedCountry } = state;
+  const {
+    state,
+    selectCountry, selectCity,
+    toggleCountrySelection, setAnalysisSelectedCountry,
+    setActiveTrendingRegion,
+  } = useApp();
+
+  const {
+    level, markers, query, compareModeOn, comparisonSelected, analysisSelectedCountry,
+    appMode, timelineMarkers, trendingData, activeTrendingRegion,
+  } = state;
 
   const [size, setSize] = useState({
     width:  containerWidth || window.innerWidth,
@@ -28,63 +37,108 @@ export default function GlobeView({ containerWidth, analysisGlobe = false }) {
     return () => window.removeEventListener('resize', onResize);
   }, [containerWidth]);
 
-  // Update size immediately when containerWidth prop changes
   useEffect(() => {
     if (containerWidth) setSize(s => ({ ...s, width: containerWidth }));
   }, [containerWidth]);
 
+  /* ── Derive the active marker set based on mode ──────────────────── */
+  const activeMarkers = useMemo(() => {
+    if (appMode === 'timeline') return timelineMarkers;
+    if (appMode === 'trending') {
+      return trendingData.map(r => ({
+        lat:   r.latitude,
+        lng:   r.longitude,
+        label: r.region,
+        count: r.videoCount,
+        type:  'trending',
+        data:  r,
+      }));
+    }
+    return markers; // explore / analysis
+  }, [appMode, markers, timelineMarkers, trendingData]);
+
   /* ── Auto-rotate when idle ───────────────────────────────────────── */
   useEffect(() => {
-    if (!globeRef.current || query) return;
+    if (!globeRef.current || query || appMode === 'trending') return;
     let frameId;
     const animate = () => {
       if (globeRef.current) {
         const pov = globeRef.current.pointOfView();
-        globeRef.current.pointOfView({ lat: pov.lat, lng: pov.lng + 0.03, altitude: pov.altitude });
+        globeRef.current.pointOfView({ lat: pov.lat, lng: pov.lng + 0.008, altitude: pov.altitude });
       }
       frameId = requestAnimationFrame(animate);
     };
     frameId = requestAnimationFrame(animate);
     return () => cancelAnimationFrame(frameId);
-  }, [query]);
+  }, [query, appMode]);
 
-  /* ── Zoom to marker cluster on level change ──────────────────────── */
+  /* ── Zoom to marker cluster on level change (explore only) ──────── */
   useEffect(() => {
-    if (!globeRef.current || markers.length === 0) return;
+    if (!globeRef.current || activeMarkers.length === 0) return;
+    if (appMode !== 'explore') return;
     if (level === 'global') {
       globeRef.current.pointOfView({ altitude: ALTITUDE.global }, 1200);
       return;
     }
-    const avgLat = markers.reduce((s, m) => s + m.lat, 0) / markers.length;
-    const avgLng = markers.reduce((s, m) => s + m.lng, 0) / markers.length;
+    const avgLat = activeMarkers.reduce((s, m) => s + m.lat, 0) / activeMarkers.length;
+    const avgLng = activeMarkers.reduce((s, m) => s + m.lng, 0) / activeMarkers.length;
     const alt    = level === 'country' ? ALTITUDE.country : ALTITUDE.city;
     globeRef.current.pointOfView({ lat: avgLat, lng: avgLng, altitude: alt }, 1200);
-  }, [level, markers]);
+  }, [level, activeMarkers, appMode]);
+
+  /* ── Zoom to fit trending markers when trending data loads ───────── */
+  useEffect(() => {
+    if (appMode !== 'trending' || !globeRef.current || trendingData.length === 0) return;
+    globeRef.current.pointOfView({ altitude: ALTITUDE.global }, 1200);
+  }, [appMode, trendingData]);
+
+  /* ── Zoom to fit timeline markers when they load ─────────────────── */
+  useEffect(() => {
+    if (appMode !== 'timeline' || !globeRef.current || timelineMarkers.length === 0) return;
+    globeRef.current.pointOfView({ altitude: ALTITUDE.global }, 1200);
+  }, [appMode, timelineMarkers]);
 
   /* ── Marker click ────────────────────────────────────────────────── */
   const handlePointClick = useCallback(point => {
     if (!point) return;
 
-    // In analysis mode: clicking selects country for the video picker
+    // Analysis globe: click selects country for video picker
     if (analysisGlobe) {
       setAnalysisSelectedCountry(point.label);
       globeRef.current?.pointOfView({ lat: point.lat, lng: point.lng, altitude: ALTITUDE.country }, 800);
       return;
     }
 
-    // In compare mode at global level: toggle selection instead of drill-down
+    // Trending mode: open region in the TrendingPanel
+    if (appMode === 'trending') {
+      setActiveTrendingRegion(point.data);
+      globeRef.current?.pointOfView({ lat: point.lat, lng: point.lng, altitude: ALTITUDE.country }, 800);
+      return;
+    }
+
+    // Timeline mode: zoom and drill into country via normal explore flow
+    if (appMode === 'timeline') {
+      globeRef.current?.pointOfView({ lat: point.lat, lng: point.lng, altitude: ALTITUDE.country }, 800);
+      selectCountry(point.label, state.query);
+      return;
+    }
+
+    // Compare mode: toggle selection
     if (compareModeOn && level === 'global') {
       toggleCountrySelection(point.label, point.lat, point.lng);
       return;
     }
 
-    // Normal drill-down
+    // Normal explore drill-down
     const alt = point.type === 'country' ? ALTITUDE.country : ALTITUDE.city;
     globeRef.current?.pointOfView({ lat: point.lat, lng: point.lng, altitude: alt }, 800);
     if (point.type === 'country') selectCountry(point.label, state.query);
     else if (point.type === 'city') selectCity(point.label, state.query);
-  }, [state.query, level, compareModeOn, analysisGlobe,
-      selectCountry, selectCity, toggleCountrySelection, setAnalysisSelectedCountry]);
+  }, [
+    state.query, level, compareModeOn, appMode, analysisGlobe,
+    selectCountry, selectCity, toggleCountrySelection,
+    setAnalysisSelectedCountry, setActiveTrendingRegion,
+  ]);
 
   /* ── Marker helpers ──────────────────────────────────────────────── */
   const isSelected = useCallback(d =>
@@ -93,19 +147,70 @@ export default function GlobeView({ containerWidth, analysisGlobe = false }) {
   const isAnalysisActive = useCallback(d =>
     d.label === analysisSelectedCountry, [analysisSelectedCountry]);
 
+  const isTrendingActive = useCallback(d =>
+    d.label === activeTrendingRegion?.region, [activeTrendingRegion]);
+
   const pointColor = useCallback(d => {
-    if (analysisGlobe && isAnalysisActive(d)) return '#facc15';  // yellow = active in analysis
-    if (isSelected(d)) return '#00d2ff';                          // blue = selected for compare
+    if (appMode === 'trending') {
+      return isTrendingActive(d) ? '#fb923c' : '#f97316';   // orange palette for trending
+    }
+    if (appMode === 'timeline') return '#00e5ff';           // cyan for timeline
+    if (analysisGlobe && isAnalysisActive(d)) return '#facc15';
+    if (isSelected(d)) return '#00d2ff';
     return d.type === 'country' ? '#ff2d55' : '#ff6b35';
-  }, [isSelected, isAnalysisActive, analysisGlobe]);
+  }, [appMode, isSelected, isAnalysisActive, isTrendingActive, analysisGlobe]);
 
   const pointRadius = useCallback(d => {
+    if (appMode === 'trending') {
+      // Trending markers are larger and scale with video count
+      return 0.9 + Math.min(d.count / 5, 3) * 0.3 + (isTrendingActive(d) ? 0.4 : 0);
+    }
     const base = d.type === 'country' ? 0.7 : 0.45;
     const sel  = isSelected(d) || isAnalysisActive(d) ? 0.3 : 0;
     return base + Math.min(d.count / 8, 2.5) * 0.25 + sel;
-  }, [isSelected, isAnalysisActive]);
+  }, [appMode, isSelected, isAnalysisActive, isTrendingActive]);
 
   const pointLabel = useCallback(d => {
+    if (appMode === 'trending') {
+      return `
+        <div style="
+          background:rgba(5,8,16,.95);
+          border:1px solid rgba(251,146,60,.6);
+          border-radius:10px;
+          padding:10px 14px;
+          font-family:Inter,sans-serif;
+          color:#fff;
+          box-shadow:0 0 24px rgba(251,146,60,.35);
+          min-width:140px;
+          pointer-events:none;
+        ">
+          <div style="font-size:14px;font-weight:600;margin-bottom:4px;">${d.label}</div>
+          <div style="font-size:12px;color:#fb923c;font-weight:500;">${d.count} trending</div>
+          <div style="font-size:10px;color:#555;margin-top:5px;">Click to see videos →</div>
+        </div>
+      `;
+    }
+
+    if (appMode === 'timeline') {
+      return `
+        <div style="
+          background:rgba(5,8,16,.95);
+          border:1px solid rgba(0,229,255,.5);
+          border-radius:10px;
+          padding:10px 14px;
+          font-family:Inter,sans-serif;
+          color:#fff;
+          box-shadow:0 0 24px rgba(0,229,255,.3);
+          min-width:130px;
+          pointer-events:none;
+        ">
+          <div style="font-size:14px;font-weight:600;margin-bottom:3px;">${d.label}</div>
+          <div style="font-size:12px;color:#00e5ff;font-weight:500;">${d.count} video${d.count !== 1 ? 's' : ''}</div>
+          <div style="font-size:10px;color:#555;margin-top:5px;">Click to explore →</div>
+        </div>
+      `;
+    }
+
     const sel = isSelected(d);
     return `
       <div style="
@@ -126,19 +231,20 @@ export default function GlobeView({ containerWidth, analysisGlobe = false }) {
         </div>
       </div>
     `;
-  }, [isSelected, compareModeOn]);
+  }, [appMode, isSelected, compareModeOn]);
 
   /* ── Pulse rings ─────────────────────────────────────────────────── */
-  const ringsData = useMemo(() => markers.map(m => ({
+  const ringsData = useMemo(() => activeMarkers.map(m => ({
     lat: m.lat,
     lng: m.lng,
-    maxR: pointRadius(m) * 3.5,
-    propagationSpeed: isSelected(m) ? 2.5 : 1.8,
-    repeatPeriod: isSelected(m) ? 600 : 900,
-  })), [markers, pointRadius, isSelected]);
+    maxR: pointRadius(m) * (appMode === 'trending' ? 4.5 : 3.5),
+    propagationSpeed: appMode === 'trending' ? 3.0 : isSelected(m) ? 2.5 : 1.8,
+    repeatPeriod:     appMode === 'trending' ? 500  : isSelected(m) ? 600  : 900,
+  })), [activeMarkers, pointRadius, isSelected, appMode]);
 
-  /* ── Comparison arcs ─────────────────────────────────────────────── */
+  /* ── Comparison arcs (explore / analysis only) ───────────────────── */
   const arcsData = useMemo(() => {
+    if (appMode !== 'explore' && !analysisGlobe) return [];
     const src = analysisGlobe
       ? (state.comparisonSelected.length >= 2 ? state.comparisonSelected : [])
       : comparisonSelected;
@@ -156,7 +262,15 @@ export default function GlobeView({ containerWidth, analysisGlobe = false }) {
       }
     }
     return pairs;
-  }, [comparisonSelected, state.comparisonSelected, analysisGlobe]);
+  }, [appMode, comparisonSelected, state.comparisonSelected, analysisGlobe]);
+
+  const ringColor = useCallback(d => {
+    if (appMode === 'trending') return 'rgba(251,146,60,0.55)';
+    if (appMode === 'timeline') return 'rgba(0,229,255,0.45)';
+    const src = analysisGlobe ? state.comparisonSelected : comparisonSelected;
+    const isSel = src.some(s => s.lat === d.lat && s.lng === d.lng);
+    return isSel ? 'rgba(0,210,255,0.6)' : 'rgba(255,45,85,0.45)';
+  }, [appMode, analysisGlobe, state.comparisonSelected, comparisonSelected]);
 
   return (
     <div className="globe-wrap">
@@ -175,7 +289,7 @@ export default function GlobeView({ containerWidth, analysisGlobe = false }) {
         atmosphereAltitude={0.22}
 
         /* Markers */
-        pointsData={markers}
+        pointsData={activeMarkers}
         pointLat="lat"
         pointLng="lng"
         pointAltitude={0.012}
@@ -193,11 +307,7 @@ export default function GlobeView({ containerWidth, analysisGlobe = false }) {
         ringMaxRadius="maxR"
         ringPropagationSpeed="propagationSpeed"
         ringRepeatPeriod="repeatPeriod"
-        ringColor={d => {
-          const src = analysisGlobe ? state.comparisonSelected : comparisonSelected;
-          const isSel = src.some(s => s.lat === d.lat && s.lng === d.lng);
-          return isSel ? 'rgba(0,210,255,0.6)' : 'rgba(255,45,85,0.45)';
-        }}
+        ringColor={ringColor}
         ringAltitude={0.003}
 
         /* Comparison arcs */
