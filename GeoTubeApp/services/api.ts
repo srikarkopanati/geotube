@@ -82,3 +82,13 @@ export const analyze = async (query: string, countries: string[]) => {
   });
   return data;
 };
+
+export const getTimeline = async (query: string, year: number) => {
+  const { data } = await client.get('/api/timeline', { params: { query, year } });
+  return data;
+};
+
+export const getTrending = async () => {
+  const { data } = await client.get('/api/trending');
+  return data;
+};

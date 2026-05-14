@@ -18,8 +18,40 @@ export default function GlobeView({ containerWidth, analysisGlobe = false }: Glo
     selectCity,
     toggleCountrySelection,
     setAnalysisSelectedCountry,
+    setActiveTrendingRegion,
   } = useApp();
-  const { level, markers, compareModeOn, comparisonSelected, analysisSelectedCountry } = state;
+  const {
+    level,
+    markers,
+    compareModeOn,
+    comparisonSelected,
+    analysisSelectedCountry,
+    appMode,
+    timelineMarkers,
+    trendingData,
+    activeTrendingRegion,
+  } = state;
+  const autoRotate =
+    !analysisGlobe &&
+    appMode === 'explore' &&
+    !state.query &&
+    !state.loading &&
+    markers.length === 0;
+
+  const activeMarkers = analysisGlobe
+    ? markers
+    : appMode === 'timeline'
+      ? timelineMarkers
+      : appMode === 'trending'
+        ? trendingData.map((region: any) => ({
+            lat: region.latitude,
+            lng: region.longitude,
+            label: region.region,
+            count: region.videoCount,
+            type: 'trending',
+            data: region,
+          }))
+        : markers;
 
   const postToGlobe = useCallback((payload: Record<string, unknown>) => {
     webViewRef.current?.injectJavaScript(`
@@ -52,6 +84,28 @@ export default function GlobeView({ containerWidth, analysisGlobe = false }: Glo
       return;
     }
 
+    if (appMode === 'trending') {
+      setActiveTrendingRegion(point.data);
+      postToGlobe({
+        type: 'ZOOM_TO',
+        lat: point.lat,
+        lng: point.lng,
+        altitude: ALTITUDE.country,
+      });
+      return;
+    }
+
+    if (appMode === 'timeline') {
+      postToGlobe({
+        type: 'ZOOM_TO',
+        lat: point.lat,
+        lng: point.lng,
+        altitude: ALTITUDE.country,
+      });
+      selectCountry(point.label, state.query);
+      return;
+    }
+
     if (compareModeOn && level === 'global') {
       toggleCountrySelection(point.label, point.lat, point.lng);
       return;
@@ -68,19 +122,21 @@ export default function GlobeView({ containerWidth, analysisGlobe = false }: Glo
     if (point.type === 'city') selectCity(point.label, state.query);
   }, [
     analysisGlobe,
+    appMode,
     compareModeOn,
     level,
     postToGlobe,
     selectCity,
     selectCountry,
+    setActiveTrendingRegion,
     setAnalysisSelectedCountry,
     state.query,
     toggleCountrySelection,
   ]);
 
   useEffect(() => {
-    postToGlobe({ type: 'UPDATE_MARKERS', markers });
-  }, [markers, postToGlobe]);
+    postToGlobe({ type: 'UPDATE_MARKERS', markers: activeMarkers });
+  }, [activeMarkers, postToGlobe]);
 
   useEffect(() => {
     postToGlobe({ type: 'UPDATE_LEVEL', level });
@@ -97,6 +153,18 @@ export default function GlobeView({ containerWidth, analysisGlobe = false }: Glo
   useEffect(() => {
     postToGlobe({ type: 'UPDATE_ANALYSIS_SELECTED_COUNTRY', analysisSelectedCountry });
   }, [analysisSelectedCountry, postToGlobe]);
+
+  useEffect(() => {
+    postToGlobe({ type: 'UPDATE_APP_MODE', appMode });
+  }, [appMode, postToGlobe]);
+
+  useEffect(() => {
+    postToGlobe({ type: 'UPDATE_ACTIVE_TRENDING_REGION', activeTrendingRegion });
+  }, [activeTrendingRegion, postToGlobe]);
+
+  useEffect(() => {
+    postToGlobe({ type: 'UPDATE_AUTO_ROTATE', autoRotate });
+  }, [autoRotate, postToGlobe]);
 
   const htmlContent = `
     <!DOCTYPE html>
@@ -128,11 +196,14 @@ export default function GlobeView({ containerWidth, analysisGlobe = false }: Glo
           const canvas = document.getElementById('globe');
           const ctx = canvas.getContext('2d');
           const dpr = window.devicePixelRatio || 1;
-          let markers = ${JSON.stringify(markers)};
+          let markers = ${JSON.stringify(activeMarkers)};
           let level = ${JSON.stringify(level)};
           let compareModeOn = ${JSON.stringify(compareModeOn)};
           let comparisonSelected = ${JSON.stringify(comparisonSelected)};
           let analysisSelectedCountry = ${JSON.stringify(analysisSelectedCountry)};
+          let appMode = ${JSON.stringify(appMode)};
+          let activeTrendingRegion = ${JSON.stringify(activeTrendingRegion)};
+          let autoRotate = ${JSON.stringify(autoRotate)};
           let centerLat = 8;
           let centerLng = 20;
           let targetLat = centerLat;
@@ -179,6 +250,10 @@ export default function GlobeView({ containerWidth, analysisGlobe = false }: Glo
 
           function selected(marker) {
             return comparisonSelected.some(item => item.label === marker.label);
+          }
+
+          function trendingActive(marker) {
+            return activeTrendingRegion && marker.label === activeTrendingRegion.region;
           }
 
           function imageReady(image) {
@@ -377,9 +452,16 @@ export default function GlobeView({ containerWidth, analysisGlobe = false }: Glo
 
               const isSelected = selected(marker);
               const isAnalysisActive = marker.label === analysisSelectedCountry;
-              const color = isAnalysisActive ? '#facc15' : isSelected ? '#00d2ff' : marker.type === 'country' ? '#ff2d55' : '#ff7a35';
-              const size = 5 + Math.min(Number(marker.count || 1), 12) * 0.45 + (isSelected || isAnalysisActive ? 2 : 0);
-              const pulse = 12 + Math.sin(time / 420 + index) * 4;
+              const isTrendingActive = trendingActive(marker);
+              const color = appMode === 'trending'
+                ? (isTrendingActive ? '#fb923c' : '#f97316')
+                : appMode === 'timeline'
+                  ? '#00e5ff'
+                  : isAnalysisActive ? '#facc15' : isSelected ? '#00d2ff' : marker.type === 'country' ? '#ff2d55' : '#ff7a35';
+              const size = appMode === 'trending'
+                ? 7 + Math.min(Number(marker.count || 1), 15) * 0.35 + (isTrendingActive ? 3 : 0)
+                : 5 + Math.min(Number(marker.count || 1), 12) * 0.45 + (isSelected || isAnalysisActive ? 2 : 0);
+              const pulse = (appMode === 'trending' ? 16 : 12) + Math.sin(time / 420 + index) * 4;
 
               ctx.beginPath();
               ctx.arc(p.x, p.y, pulse, 0, Math.PI * 2);
@@ -400,6 +482,9 @@ export default function GlobeView({ containerWidth, analysisGlobe = false }: Glo
           }
 
           function draw() {
+            if (autoRotate && !dragging) {
+              targetLng = normalizeLng(targetLng + 0.045);
+            }
             centerLat += (targetLat - centerLat) * 0.08;
             centerLng += normalizeLng(targetLng - centerLng) * 0.08;
             scale += (targetScale - scale) * 0.08;
@@ -427,6 +512,9 @@ export default function GlobeView({ containerWidth, analysisGlobe = false }: Glo
             if (data.type === 'UPDATE_COMPARE_MODE') compareModeOn = !!data.compareModeOn;
             if (data.type === 'UPDATE_COMPARISON_SELECTED') comparisonSelected = data.comparisonSelected || [];
             if (data.type === 'UPDATE_ANALYSIS_SELECTED_COUNTRY') analysisSelectedCountry = data.analysisSelectedCountry;
+            if (data.type === 'UPDATE_APP_MODE') appMode = data.appMode || 'explore';
+            if (data.type === 'UPDATE_ACTIVE_TRENDING_REGION') activeTrendingRegion = data.activeTrendingRegion;
+            if (data.type === 'UPDATE_AUTO_ROTATE') autoRotate = !!data.autoRotate;
             if (data.type === 'ZOOM_TO') {
               targetLat = Number(data.lat) || 0;
               targetLng = Number(data.lng) || 0;

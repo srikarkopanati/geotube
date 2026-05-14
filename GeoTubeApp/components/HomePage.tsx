@@ -10,8 +10,13 @@ import ErrorState from './ErrorState';
 import CountrySelector from './comparison/CountrySelector';
 import CompareButton from './comparison/CompareButton';
 import AnalysisLayout from './analysis/AnalysisLayout';
+import ModeSelector from './ModeSelector';
+import TimelineSlider from './TimelineSlider';
+import TrendingPanel from './TrendingPanel';
 
-const { width } = Dimensions.get('window');
+const { width, height } = Dimensions.get('window');
+const HEADER_HEIGHT = 220;
+const TAB_BAR_CLEARANCE = 78;
 
 export default function HomePage() {
   const {
@@ -24,11 +29,12 @@ export default function HomePage() {
     exitAnalysisMode,
     goBack,
     clearError,
+    setAppMode,
   } = useApp();
   const {
     query, loading, error, markers, sidebarOpen, level,
     compareModeOn, comparisonSelected,
-    analysisMode,
+    analysisMode, appMode, timelineMarkers, timelineLoading, trendingData,
   } = state;
 
   useEffect(() => {
@@ -53,6 +59,11 @@ export default function HomePage() {
         return true;
       }
 
+      if (appMode !== 'explore') {
+        setAppMode('explore');
+        return true;
+      }
+
       if (level === 'city' || level === 'country') {
         goBack();
         return true;
@@ -69,6 +80,7 @@ export default function HomePage() {
     return () => subscription.remove();
   }, [
     analysisMode,
+    appMode,
     clearComparison,
     clearError,
     closeSidebar,
@@ -80,6 +92,7 @@ export default function HomePage() {
     level,
     query,
     search,
+    setAppMode,
     sidebarOpen,
   ]);
 
@@ -88,7 +101,12 @@ export default function HomePage() {
     return <AnalysisLayout />;
   }
 
-  const showCompareUI = query && !loading && markers.length > 0 && level === 'global';
+  const isExplore = appMode === 'explore';
+  const isTimeline = appMode === 'timeline';
+  const isTrending = appMode === 'trending';
+  const markerCount = isTimeline ? timelineMarkers.length : isTrending ? trendingData.length : markers.length;
+  const markerLabel = isTrending ? 'regions' : level === 'global' ? 'countries' : level === 'country' ? 'cities' : 'locations';
+  const showCompareUI = isExplore && query && !loading && markers.length > 0 && level === 'global';
 
   return (
     <View style={styles.container}>
@@ -117,15 +135,14 @@ export default function HomePage() {
           <SearchBar />
         </View>
 
+        <ModeSelector />
+
         {/* Right cluster: result count + compare toggle */}
         <View style={styles.headerRight}>
-          {markers.length > 0 && (
+          {markerCount > 0 && (
             <View style={styles.resultCount}>
-              <Text style={styles.resultCountText}>{markers.length}</Text>
-              <Text style={styles.resultCountLabel}>
-                {' '}
-                {level === 'global' ? 'countries' : level === 'country' ? 'cities' : 'locations'}
-              </Text>
+              <Text style={styles.resultCountText}>{markerCount}</Text>
+              <Text style={styles.resultCountLabel}> {markerLabel}</Text>
             </View>
           )}
 
@@ -148,7 +165,7 @@ export default function HomePage() {
       </View>
 
       {/* ── Breadcrumb ───────────────────────────────────────── */}
-      {query && !compareModeOn && (
+      {query && isExplore && !compareModeOn && (
         <View style={styles.breadcrumb}>
           <Breadcrumb />
         </View>
@@ -163,8 +180,22 @@ export default function HomePage() {
         </View>
       )}
 
+      {isTimeline && (
+        <View style={styles.timelineHint}>
+          <Text style={styles.timelineHintText}>
+            {timelineLoading
+              ? 'Loading timeline data...'
+              : timelineMarkers.length > 0
+                ? `${timelineMarkers.length} countr${timelineMarkers.length === 1 ? 'y' : 'ies'} in ${state.selectedYear}`
+                : query
+                  ? `No data for ${state.selectedYear}`
+                  : 'Search a topic first, then choose a year'}
+          </Text>
+        </View>
+      )}
+
       {/* ── Hero intro (shown before first search) ────────────── */}
-      {!query && !loading && (
+      {!query && !loading && isExplore && (
         <View style={styles.hero}>
           <View style={styles.heroScrim} />
           <Text style={styles.heroTitle}>
@@ -191,7 +222,7 @@ export default function HomePage() {
       )}
 
       {/* ── Level label overlay ───────────────────────────────── */}
-      {query && !loading && markers.length > 0 && !compareModeOn && (
+      {isExplore && query && !loading && markers.length > 0 && !compareModeOn && (
         <View style={styles.levelLabel}>
           <Text style={styles.levelLabelText}>
             {level === 'global' && 'Click a country to zoom in'}
@@ -206,7 +237,9 @@ export default function HomePage() {
       {showCompareUI && compareModeOn && comparisonSelected.length >= 2 && <CompareButton />}
 
       {/* ── Video sidebar ─────────────────────────────────────── */}
-      {sidebarOpen && !compareModeOn && <VideoSidebar />}
+      {sidebarOpen && isExplore && !compareModeOn && <VideoSidebar />}
+      {isTimeline && <TimelineSlider />}
+      {isTrending && <TrendingPanel />}
 
       {/* ── Overlays ─────────────────────────────────────────── */}
       {loading && <Loader message={state.loadingMessage} />}
@@ -315,13 +348,13 @@ const styles = StyleSheet.create({
   },
   breadcrumb: {
     position: 'absolute',
-    top: 150,
+    top: 216,
     left: 24,
     zIndex: 20,
   },
   compareHint: {
     position: 'absolute',
-    top: 150,
+    top: 216,
     left: 24,
     right: 24,
     zIndex: 20,
@@ -337,9 +370,32 @@ const styles = StyleSheet.create({
     color: '#00d0ff',
     fontSize: 12,
   },
+  timelineHint: {
+    position: 'absolute',
+    top: 216,
+    left: 24,
+    right: 24,
+    zIndex: 20,
+    alignItems: 'center',
+  },
+  timelineHintText: {
+    color: '#67e8f9',
+    fontSize: 12,
+    textAlign: 'center',
+    backgroundColor: 'rgba(0, 208, 255, 0.1)',
+    borderWidth: 1,
+    borderColor: 'rgba(0, 208, 255, 0.22)',
+    borderRadius: 18,
+    paddingHorizontal: 14,
+    paddingVertical: 7,
+    overflow: 'hidden',
+  },
   hero: {
     position: 'absolute',
-    inset: 0,
+    top: HEADER_HEIGHT,
+    left: 0,
+    right: 0,
+    bottom: TAB_BAR_CLEARANCE,
     alignItems: 'center',
     justifyContent: 'center',
     zIndex: 10,
@@ -349,7 +405,7 @@ const styles = StyleSheet.create({
     position: 'absolute',
     width: '92%',
     maxWidth: 390,
-    height: 245,
+    height: Math.min(245, Math.max(205, height * 0.25)),
     borderRadius: 18,
     backgroundColor: 'rgba(0,0,0,0.18)',
   },
@@ -399,7 +455,7 @@ const styles = StyleSheet.create({
   },
   levelLabel: {
     position: 'absolute',
-    bottom: 24,
+    bottom: TAB_BAR_CLEARANCE + 14,
     left: width / 2 - 120,
     zIndex: 10,
     backgroundColor: 'rgba(255,255,255,0.1)',

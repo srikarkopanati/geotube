@@ -4,8 +4,9 @@ import { useApp } from '../context/AppContext';
 
 export default function SearchBar() {
   const { state, search } = useApp();
-  const { query } = state;
+  const { query, appMode } = state;
   const [inputValue, setInputValue] = useState(query);
+  const disabled = state.loading || appMode === 'trending';
 
   useEffect(() => {
     setInputValue(query);
@@ -13,7 +14,7 @@ export default function SearchBar() {
 
   const handleSubmit = () => {
     const nextQuery = inputValue.trim();
-    if (nextQuery) search(nextQuery);
+    if (nextQuery && !disabled) search(nextQuery);
   };
 
   return (
@@ -26,8 +27,9 @@ export default function SearchBar() {
         placeholderTextColor="#9ca3af"
         onSubmitEditing={handleSubmit}
         returnKeyType="search"
+        editable={!disabled}
       />
-      <TouchableOpacity onPress={handleSubmit} style={styles.button}>
+      <TouchableOpacity onPress={handleSubmit} style={[styles.button, disabled && styles.buttonDisabled]}>
         <View style={styles.icon}>
           <Text style={styles.iconText}>⌕</Text>
         </View>
@@ -58,6 +60,9 @@ const styles = StyleSheet.create({
   },
   button: {
     marginLeft: 8,
+  },
+  buttonDisabled: {
+    opacity: 0.45,
   },
   icon: {
     width: 34,

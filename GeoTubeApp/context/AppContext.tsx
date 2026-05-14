@@ -1,6 +1,7 @@
 import React, { createContext, useCallback, useContext, useReducer } from 'react';
-import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as api from '../services/api';
+
+type AppMode = 'explore' | 'timeline' | 'trending';
 
 interface CountryData {
   country: string;
@@ -56,6 +57,15 @@ interface AppState {
   // Which video is playing in the analysis left-panel
   analysisActiveVideo: any;
 
+  appMode: AppMode;
+  selectedYear: number;
+  timelineMarkers: any[];
+  timelineLoading: boolean;
+  trendingData: any[];
+  trendingLoading: boolean;
+  trendingLastRefresh: number | null;
+  activeTrendingRegion: any;
+
   // ── UI ──────────────────────────────────────────────────────────────────
   loading: boolean;
   loadingMessage: string;
@@ -80,6 +90,11 @@ interface AppContextValue {
   setAnalysisSelectedCountry: (country: any) => void;
   goBack: () => void;
   clearError: () => void;
+  setAppMode: (mode: AppMode) => Promise<void>;
+  setYear: (year: number) => Promise<void>;
+  fetchTimeline: (query: string, year: number) => Promise<void>;
+  fetchTrending: () => Promise<void>;
+  setActiveTrendingRegion: (region: any) => void;
 }
 
 const AppContext = createContext<AppContextValue | null>(null);
@@ -120,6 +135,15 @@ const initialState: AppState = {
   analysisSelectedCountry: null,
   // Which video is playing in the analysis left-panel
   analysisActiveVideo: null,
+
+  appMode: 'explore',
+  selectedYear: 2020,
+  timelineMarkers: [],
+  timelineLoading: false,
+  trendingData: [],
+  trendingLoading: false,
+  trendingLastRefresh: null,
+  activeTrendingRegion: null,
 
   // ── UI ──────────────────────────────────────────────────────────────────
   loading: false,
@@ -163,6 +187,39 @@ function reducer(state: AppState, action: any): AppState {
       return { ...state, sidebarOpen: false, activeVideo: null };
     case 'RESET':
       return { ...initialState };
+
+    case 'SET_APP_MODE':
+      return {
+        ...state,
+        appMode: action.payload,
+        activeTrendingRegion: null,
+        sidebarOpen: false,
+        activeVideo: null,
+        compareModeOn: false,
+      };
+
+    case 'SET_YEAR':
+      return { ...state, selectedYear: action.payload };
+
+    case 'SET_TIMELINE_MARKERS':
+      return { ...state, timelineMarkers: action.payload, timelineLoading: false };
+
+    case 'SET_TIMELINE_LOADING':
+      return { ...state, timelineLoading: action.payload };
+
+    case 'SET_TRENDING_DATA':
+      return {
+        ...state,
+        trendingData: action.payload,
+        trendingLoading: false,
+        trendingLastRefresh: Date.now(),
+      };
+
+    case 'SET_TRENDING_LOADING':
+      return { ...state, trendingLoading: action.payload };
+
+    case 'SET_ACTIVE_TRENDING_REGION':
+      return { ...state, activeTrendingRegion: action.payload };
 
     // ── Comparison mode ───────────────────────────────────────────────────
     case 'TOGGLE_COMPARE_MODE':
@@ -398,6 +455,56 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     }
   }, [state.query, state.comparisonSelected]);
 
+  const fetchTimeline = useCallback(async (query: string, year: number) => {
+    if (!query) return;
+    dispatch({ type: 'SET_TIMELINE_LOADING', payload: true });
+    try {
+      const data = await api.getTimeline(query, year);
+      const timelineMarkers = data.map((d: any) => ({
+        lat: d.latitude,
+        lng: d.longitude,
+        label: d.country,
+        count: d.videoCount,
+        type: 'country',
+        data: d,
+        isTimeline: true,
+      }));
+      dispatch({ type: 'SET_TIMELINE_MARKERS', payload: timelineMarkers });
+    } catch {
+      dispatch({ type: 'SET_TIMELINE_LOADING', payload: false });
+    }
+  }, []);
+
+  const setYear = useCallback(async (year: number) => {
+    dispatch({ type: 'SET_YEAR', payload: year });
+    if (state.appMode === 'timeline' && state.query) {
+      await fetchTimeline(state.query, year);
+    }
+  }, [fetchTimeline, state.appMode, state.query]);
+
+  const fetchTrending = useCallback(async () => {
+    dispatch({ type: 'SET_TRENDING_LOADING', payload: true });
+    try {
+      const data = await api.getTrending();
+      dispatch({ type: 'SET_TRENDING_DATA', payload: data });
+    } catch {
+      dispatch({ type: 'SET_TRENDING_LOADING', payload: false });
+    }
+  }, []);
+
+  const setActiveTrendingRegion = useCallback((region: any) => {
+    dispatch({ type: 'SET_ACTIVE_TRENDING_REGION', payload: region });
+  }, []);
+
+  const setAppMode = useCallback(async (mode: AppMode) => {
+    dispatch({ type: 'SET_APP_MODE', payload: mode });
+    if (mode === 'trending') {
+      await fetchTrending();
+    } else if (mode === 'timeline' && state.query) {
+      await fetchTimeline(state.query, state.selectedYear);
+    }
+  }, [fetchTimeline, fetchTrending, state.query, state.selectedYear]);
+
   return (
     <AppContext.Provider
       value={{
@@ -420,6 +527,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         exitAnalysisMode,
         setAnalysisSelectedCountry,
         setAnalysisActiveVideo,
+        setAppMode,
+        setYear,
+        fetchTimeline,
+        fetchTrending,
+        setActiveTrendingRegion,
       }}
     >
       {children}
