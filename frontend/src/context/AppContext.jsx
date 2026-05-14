@@ -4,13 +4,13 @@ import * as api from '../services/api';
 const AppContext = createContext(null);
 
 const initialState = {
-  // Navigation
+  // ── Navigation ──────────────────────────────────────────────────────────
   level: 'global',         // 'global' | 'country' | 'city'
   query: '',
   selectedCountry: null,
   selectedCity: null,
 
-  // Globe markers  [ { lat, lng, label, count, type, data } ]
+  // ── Globe markers  [ { lat, lng, label, count, type, data } ] ───────────
   markers: [],
 
   // Country result cache so we can restore without a refetch
@@ -19,12 +19,28 @@ const initialState = {
   // City results cache keyed by country name
   cityMarkersCache: {},
 
-  // Video sidebar
+  // ── Video sidebar ────────────────────────────────────────────────────────
   videos: [],
   sidebarOpen: false,
   activeVideo: null,
 
-  // UI
+  // ── Comparison selection ─────────────────────────────────────────────────
+  // Active when user wants to pick countries for comparison
+  compareModeOn: false,
+  comparisonSelected: [],   // [{ label, lat, lng }]  — max 4
+
+  // ── Analysis (split-screen) mode ─────────────────────────────────────────
+  analysisMode: false,
+  analysisData: null,
+  analysisLoading: false,
+  analysisProgress: '',
+  analysisError: null,
+  // Which country the user clicked on in the globe while in analysis mode
+  analysisSelectedCountry: null,
+  // Which video is playing in the analysis left-panel
+  analysisActiveVideo: null,
+
+  // ── UI ──────────────────────────────────────────────────────────────────
   loading: false,
   loadingMessage: '',
   error: null,
@@ -32,6 +48,8 @@ const initialState = {
 
 function reducer(state, action) {
   switch (action.type) {
+
+    // ── Existing actions (unchanged) ──────────────────────────────────────
     case 'SET_LOADING':
       return { ...state, loading: action.payload, loadingMessage: action.message || '', error: null };
     case 'SET_ERROR':
@@ -64,6 +82,81 @@ function reducer(state, action) {
       return { ...state, sidebarOpen: false, activeVideo: null };
     case 'RESET':
       return { ...initialState };
+
+    // ── Comparison mode ───────────────────────────────────────────────────
+    case 'TOGGLE_COMPARE_MODE':
+      return {
+        ...state,
+        compareModeOn: !state.compareModeOn,
+        comparisonSelected: [],
+      };
+
+    case 'TOGGLE_COUNTRY_SELECTION': {
+      const { label, lat, lng } = action.payload;
+      const alreadyIn = state.comparisonSelected.some(c => c.label === label);
+      if (alreadyIn) {
+        return {
+          ...state,
+          comparisonSelected: state.comparisonSelected.filter(c => c.label !== label),
+        };
+      }
+      if (state.comparisonSelected.length >= 4) return state; // max 4
+      return {
+        ...state,
+        comparisonSelected: [...state.comparisonSelected, { label, lat, lng }],
+      };
+    }
+
+    case 'CLEAR_COMPARISON':
+      return { ...state, comparisonSelected: [], compareModeOn: false };
+
+    // ── Analysis mode ─────────────────────────────────────────────────────
+    case 'ENTER_ANALYSIS_MODE':
+      return {
+        ...state,
+        analysisMode: true,
+        analysisLoading: true,
+        analysisProgress: 'Starting analysis…',
+        analysisError: null,
+        analysisData: null,
+      };
+
+    case 'EXIT_ANALYSIS_MODE':
+      return {
+        ...state,
+        analysisMode: false,
+        analysisData: null,
+        analysisLoading: false,
+        analysisProgress: '',
+        analysisError: null,
+        comparisonSelected: [],
+        compareModeOn: false,
+        analysisSelectedCountry: null,
+        analysisActiveVideo: null,
+      };
+
+    case 'SET_ANALYSIS_DATA':
+      return {
+        ...state,
+        analysisData: action.payload,
+        analysisLoading: false,
+        analysisProgress: '',
+        // Default to first country
+        analysisSelectedCountry: action.payload?.countries?.[0]?.country || null,
+      };
+
+    case 'SET_ANALYSIS_LOADING':
+      return { ...state, analysisLoading: action.payload, analysisProgress: action.message || '' };
+
+    case 'SET_ANALYSIS_ERROR':
+      return { ...state, analysisError: action.payload, analysisLoading: false };
+
+    case 'SET_ANALYSIS_SELECTED_COUNTRY':
+      return { ...state, analysisSelectedCountry: action.payload };
+
+    case 'SET_ANALYSIS_ACTIVE_VIDEO':
+      return { ...state, analysisActiveVideo: action.payload };
+
     default:
       return state;
   }
@@ -72,10 +165,15 @@ function reducer(state, action) {
 export function AppProvider({ children }) {
   const [state, dispatch] = useReducer(reducer, initialState);
 
+  // ── Existing async operations (unchanged) ─────────────────────────────
+
   const search = useCallback(async query => {
     dispatch({ type: 'SET_LOADING', payload: true, message: 'Searching YouTube for geotagged videos…' });
     dispatch({ type: 'SET_QUERY', payload: query });
     dispatch({ type: 'CLOSE_SIDEBAR' });
+    // Reset comparison when running a new search
+    dispatch({ type: 'CLEAR_COMPARISON' });
+    if (state.analysisMode) dispatch({ type: 'EXIT_ANALYSIS_MODE' });
 
     try {
       const countries = await api.search(query);
@@ -101,13 +199,12 @@ export function AppProvider({ children }) {
     } catch (err) {
       dispatch({ type: 'SET_ERROR', payload: err.message });
     }
-  }, []);
+  }, [state.analysisMode]);
 
   const selectCountry = useCallback(async (country, query) => {
     dispatch({ type: 'SET_LOADING', payload: true, message: `Loading cities in ${country}…` });
     dispatch({ type: 'SET_COUNTRY', payload: country });
 
-    // Serve from cache when available
     if (state.cityMarkersCache[country]) {
       dispatch({ type: 'SET_CITY_MARKERS', payload: state.cityMarkersCache[country], country });
       dispatch({ type: 'SET_LOADING', payload: false });
@@ -148,7 +245,6 @@ export function AppProvider({ children }) {
     if (state.level === 'city') {
       dispatch({ type: 'SET_LEVEL', payload: 'country' });
       dispatch({ type: 'CLOSE_SIDEBAR' });
-      // Restore cached city markers
       const cached = state.cityMarkersCache[state.selectedCountry];
       if (cached) dispatch({ type: 'SET_MARKERS', payload: cached });
     } else if (state.level === 'country') {
@@ -158,14 +254,77 @@ export function AppProvider({ children }) {
     }
   }, [state]);
 
-  const openVideo  = useCallback(video => dispatch({ type: 'SET_ACTIVE_VIDEO', payload: video }), []);
-  const closeVideo = useCallback(()    => dispatch({ type: 'SET_ACTIVE_VIDEO', payload: null }), []);
-  const closeSidebar = useCallback(()  => dispatch({ type: 'CLOSE_SIDEBAR' }), []);
-  const clearError   = useCallback(()  => dispatch({ type: 'CLEAR_ERROR' }), []);
+  const openVideo    = useCallback(video => dispatch({ type: 'SET_ACTIVE_VIDEO', payload: video }), []);
+  const closeVideo   = useCallback(()    => dispatch({ type: 'SET_ACTIVE_VIDEO', payload: null }), []);
+  const closeSidebar = useCallback(()    => dispatch({ type: 'CLOSE_SIDEBAR' }), []);
+  const clearError   = useCallback(()    => dispatch({ type: 'CLEAR_ERROR' }), []);
+
+  // ── New comparison operations ─────────────────────────────────────────
+
+  const toggleCompareMode = useCallback(() => {
+    dispatch({ type: 'TOGGLE_COMPARE_MODE' });
+  }, []);
+
+  const toggleCountrySelection = useCallback((label, lat, lng) => {
+    dispatch({ type: 'TOGGLE_COUNTRY_SELECTION', payload: { label, lat, lng } });
+  }, []);
+
+  const clearComparison = useCallback(() => {
+    dispatch({ type: 'CLEAR_COMPARISON' });
+  }, []);
+
+  const exitAnalysisMode = useCallback(() => {
+    dispatch({ type: 'EXIT_ANALYSIS_MODE' });
+  }, []);
+
+  const setAnalysisSelectedCountry = useCallback(country => {
+    dispatch({ type: 'SET_ANALYSIS_SELECTED_COUNTRY', payload: country });
+  }, []);
+
+  const setAnalysisActiveVideo = useCallback(video => {
+    dispatch({ type: 'SET_ANALYSIS_ACTIVE_VIDEO', payload: video });
+  }, []);
+
+  const runComparison = useCallback(async () => {
+    dispatch({ type: 'ENTER_ANALYSIS_MODE' });
+    const countries = state.comparisonSelected.map(c => c.label);
+
+    // Simulate progressive status messages while the backend processes
+    const steps = [
+      'Fetching video transcripts…',
+      'Extracting metadata…',
+      'Comparing countries…',
+      'Generating dashboard…',
+    ];
+    let stepIdx = 0;
+    const progressInterval = setInterval(() => {
+      if (stepIdx < steps.length) {
+        dispatch({ type: 'SET_ANALYSIS_LOADING', payload: true, message: steps[stepIdx++] });
+      }
+    }, 4000);
+
+    try {
+      const data = await api.analyze(state.query, countries);
+      clearInterval(progressInterval);
+      dispatch({ type: 'SET_ANALYSIS_DATA', payload: data });
+    } catch (err) {
+      clearInterval(progressInterval);
+      dispatch({ type: 'SET_ANALYSIS_ERROR', payload: err.message });
+    }
+  }, [state.query, state.comparisonSelected]);
 
   return (
     <AppContext.Provider
-      value={{ state, search, selectCountry, selectCity, goBack, openVideo, closeVideo, closeSidebar, clearError }}
+      value={{
+        state,
+        // Existing
+        search, selectCountry, selectCity, goBack,
+        openVideo, closeVideo, closeSidebar, clearError,
+        // New comparison
+        toggleCompareMode, toggleCountrySelection, clearComparison,
+        runComparison, exitAnalysisMode,
+        setAnalysisSelectedCountry, setAnalysisActiveVideo,
+      }}
     >
       {children}
     </AppContext.Provider>
