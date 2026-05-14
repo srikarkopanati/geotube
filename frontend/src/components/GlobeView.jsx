@@ -40,7 +40,7 @@ export default function GlobeView({ containerWidth, analysisGlobe = false }) {
     const animate = () => {
       if (globeRef.current) {
         const pov = globeRef.current.pointOfView();
-        globeRef.current.pointOfView({ lat: pov.lat, lng: pov.lng + 0.08, altitude: pov.altitude });
+        globeRef.current.pointOfView({ lat: pov.lat, lng: pov.lng + 0.03, altitude: pov.altitude });
       }
       frameId = requestAnimationFrame(animate);
     };
@@ -166,13 +166,13 @@ export default function GlobeView({ containerWidth, analysisGlobe = false }) {
         height={size.height}
 
         /* Textures */
-        globeImageUrl="//unpkg.com/three-globe/example/img/earth-night.jpg"
+        globeImageUrl="//unpkg.com/three-globe/example/img/earth-blue-marble.jpg"
         bumpImageUrl="//unpkg.com/three-globe/example/img/earth-topology.png"
         backgroundImageUrl="//unpkg.com/three-globe/example/img/night-sky.png"
 
         /* Atmosphere */
-        atmosphereColor="rgba(60,120,255,0.28)"
-        atmosphereAltitude={0.18}
+        atmosphereColor="rgba(100,180,255,0.35)"
+        atmosphereAltitude={0.22}
 
         /* Markers */
         pointsData={markers}
