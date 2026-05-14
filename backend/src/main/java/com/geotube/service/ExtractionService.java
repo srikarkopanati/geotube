@@ -23,8 +23,9 @@ import java.util.regex.Pattern;
  * (optional) transcript against a domain-specific schema.
  *
  * Strategy:
- *   1. If ANTHROPIC_API_KEY is configured → call Claude haiku for high-quality extraction.
- *   2. Otherwise → rule-based keyword extraction (always returns something useful).
+ *   1. If Ollama is available → call local llm for high-quality extraction.
+ *   2. Else if ANTHROPIC_API_KEY is configured → call Claude haiku (legacy fallback).
+ *   3. Otherwise → rule-based keyword extraction (always returns something useful).
  */
 @Service
 public class ExtractionService {
@@ -39,10 +40,12 @@ public class ExtractionService {
 
     private final WebClient    webClient;
     private final ObjectMapper objectMapper;
+    private final OllamaService ollamaService;
 
-    public ExtractionService(WebClient webClient, ObjectMapper objectMapper) {
-        this.webClient    = webClient;
-        this.objectMapper = objectMapper;
+    public ExtractionService(WebClient webClient, ObjectMapper objectMapper, OllamaService ollamaService) {
+        this.webClient     = webClient;
+        this.objectMapper  = objectMapper;
+        this.ollamaService = ollamaService;
     }
 
     /**
@@ -59,6 +62,15 @@ public class ExtractionService {
     public Map<String, Object> extract(String query, String domain,
                                        Map<String, Object> schema,
                                        String transcript, String title, String description) {
+        // Prefer Ollama (local, no API key needed)
+        if (ollamaService.isAvailable()) {
+            try {
+                return extractWithOllama(query, domain, schema, transcript, title, description);
+            } catch (Exception e) {
+                log.warn("Ollama extraction failed for '{}', trying fallback: {}", title, e.getMessage());
+            }
+        }
+        // Legacy fallback: Claude (if API key configured)
         if (isClaudeAvailable()) {
             try {
                 return extractWithClaude(query, domain, schema, transcript, title, description);
@@ -67,6 +79,31 @@ public class ExtractionService {
             }
         }
         return extractRuleBased(domain, schema, transcript, title, description);
+    }
+
+    // ── Ollama-based extraction ───────────────────────────────────────────
+
+    private Map<String, Object> extractWithOllama(String query, String domain,
+                                                   Map<String, Object> schema,
+                                                   String transcript, String title,
+                                                   String description) throws Exception {
+        String schemaJson  = objectMapper.writeValueAsString(schema);
+        String contentText = buildContentText(transcript, title, description);
+
+        String prompt = String.format("""
+                You are a video content analyst. Extract structured information from this YouTube video about "%s" (%s domain).
+
+                Video content:
+                %s
+
+                Extract data into this exact JSON schema (fill null for unknown fields, max 5 items per list):
+                %s
+
+                Return ONLY valid JSON matching the schema. No explanation, no markdown fences.
+                """, query, domain, contentText, schemaJson);
+
+        String responseText = ollamaService.generate(prompt);
+        return parseJsonToMap(responseText, schema);
     }
 
     // ── Claude-based extraction ───────────────────────────────────────────
