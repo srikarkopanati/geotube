@@ -89,3 +89,34 @@ html, body, #root {
 /* ── Globe canvas fill ──────────────────────────────────── */
 .globe-wrap { position: absolute; inset: 0; }
 .globe-wrap canvas { display: block; }
+
+/* -- Slide up (TimelineSlider entrance) -- */
+@keyframes slideUp {
+  from { transform: translateY(24px); opacity: 0; }
+  to   { transform: translateY(0);    opacity: 1; }
+}
+.slide-up { animation: slideUp .45s cubic-bezier(.22,1,.36,1) forwards; }
+
+/* -- Extra glow variants -- */
+.glow-orange { box-shadow: 0 0 18px rgba(251,146,60,.55), 0 0 40px rgba(251,146,60,.2); }
+.glow-cyan   { box-shadow: 0 0 18px rgba(0,229,255,.55),  0 0 40px rgba(0,229,255,.2); }
+
+/* -- Gradient text helpers -- */
+.text-gradient-cyan {
+  background: linear-gradient(135deg, #67e8f9, #3b82f6);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+.text-gradient-red {
+  background: linear-gradient(135deg, #f87171, #ef4444);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+.text-gradient-orange {
+  background: linear-gradient(135deg, #fdba74, #f97316);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}

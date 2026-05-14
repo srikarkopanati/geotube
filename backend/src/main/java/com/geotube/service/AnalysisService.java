@@ -1,6 +1,5 @@
 package com.geotube.service;
 
-import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.geotube.dto.ChatRequest;
 import com.geotube.model.ComparisonCache;
@@ -13,11 +12,8 @@ import com.geotube.util.CountryCoordinates;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.http.MediaType;
 import org.springframework.stereotype.Service;
-import org.springframework.web.reactive.function.client.WebClient;
 
-import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -44,12 +40,6 @@ public class AnalysisService {
     private static final Logger log   = LoggerFactory.getLogger(AnalysisService.class);
     private static final int    TOP_K = 5;
 
-    @Value("${anthropic.api.key:}")
-    private String anthropicApiKey;
-
-    @Value("${anthropic.api.url:https://api.anthropic.com}")
-    private String anthropicApiUrl;
-
     private final VideoRepository            videoRepository;
     private final VideoAnalysisRepository    videoAnalysisRepository;
     private final ComparisonCacheRepository  comparisonCacheRepository;
@@ -60,7 +50,6 @@ public class AnalysisService {
     private final ComparisonService          comparisonService;
     private final OllamaService              ollamaService;
     private final VisualizationDataService   vizService;
-    private final WebClient                  webClient;
     private final ObjectMapper               objectMapper;
 
     public AnalysisService(VideoRepository videoRepository,
@@ -73,7 +62,6 @@ public class AnalysisService {
                            ComparisonService comparisonService,
                            OllamaService ollamaService,
                            VisualizationDataService vizService,
-                           WebClient webClient,
                            ObjectMapper objectMapper) {
         this.videoRepository          = videoRepository;
         this.videoAnalysisRepository  = videoAnalysisRepository;
@@ -85,7 +73,6 @@ public class AnalysisService {
         this.comparisonService        = comparisonService;
         this.ollamaService            = ollamaService;
         this.vizService               = vizService;
-        this.webClient                = webClient;
         this.objectMapper             = objectMapper;
     }
 
@@ -207,11 +194,15 @@ public class AnalysisService {
                 - Do not include any thinking or reasoning tags in your response.
 
                 LANGUAGE RULE — follow this exactly:
-                If the user question contains any of these Telugu words in English letters:
-                "lo", "enti", "untundi", "chala", "ekkuva", "anni", "oka", "rendu", "bagundi",
-                "chepu", "cheppu", "veru", "kaadu", "aithe", "kooda", "matram", "undi", "ledu",
-                "yevari", "adenti", "ee", "meeru", "vadiki", "valla", "chestaru", "untayi"
-                → reply ONLY in Tenglish (Telugu words spelled in English letters).
+                First, determine the language of the user question:
+                - If the question is written in plain English → answer ONLY in plain English. Do NOT use any Telugu words.
+                - If the question is written in Telugu script (అ, ఆ, ఇ, ఈ... characters) → answer in Telugu script.
+                - If the question is Tenglish (Telugu words written in English letters, e.g. "enti", "untundi", "chala", "ekkuva", "bagundi", "yevari", "aithe", "kooda", "untayi", "chestaru") → answer in Tenglish.
+
+                To detect Tenglish, look for Telugu-specific words as WHOLE WORDS (not substrings):
+                "enti", "untundi", "chala", "ekkuva", "bagundi", "yevari", "aithe", "kooda",
+                "untayi", "chestaru", "takkuva", "anni", "rendu", "matram", "ledu", "kaadu"
+                At least 2 of these must appear as standalone words for it to count as Tenglish.
 
                 Tenglish grammar — use these exact patterns:
                 - "X lo" = in X            → "India lo", "Japan lo"
@@ -221,69 +212,37 @@ public class AnalysisService {
                 - "untundi" = there is     → "fresh food untundi"
                 - "untayi" = there are     → "chala options untayi"
                 - "chestaru" = they do     → "spices use chestaru"
-                - "istaru" = they prefer   → "sweet flavors istaru"
                 - "aithe" = whereas/but    → "India lo spicy, Japan lo aithe mild"
                 - "kooda" = also/too       → "Italy lo kooda similar"
-                - NEVER write: "kulothe", "asa untayi", "dhrama dhrao", "ra honey" — these are wrong
 
-                Correct Tenglish examples:
+                Tenglish examples:
                 Q: "ee rendu countries lo common ga enti?"
-                A: "Rendu countries lo kooda semolina-based dishes chala popular ga untayi, quick ga prepare cheyyadam important ga feel avutaru. Spices use kooda rendu lo similar ga untundi."
+                A: "Rendu countries lo kooda semolina-based dishes chala popular ga untayi. Spices use kooda rendu lo similar ga untundi."
 
                 Q: "yevari breakfast lo ekkuva variety untundi?"
-                A: "India lo breakfast variety chala ekkuva untundi — idli, dosa, upma, paratha anni options untayi. Japan lo aithe simple ga rice tho miso soup matrame untundi."
+                A: "India lo breakfast variety chala ekkuva untundi — idli, dosa, upma anni options untayi. Japan lo aithe simple ga rice tho miso soup matrame untundi."
 
-                Q: "yevari food costly ga untundi?"
-                A: "Japan lo food prices chala ekkuva untayi, oka simple meal kooda costly ga untundi. India lo same quality food chala takkuva cost lo dorikindi."
+                English example:
+                Q: "Which country has more variety?"
+                A: "India has significantly more breakfast variety with dishes like idli, dosa, and paratha. Japan tends to keep breakfast simple with rice and miso soup."
 
                 IMPORTANT: Answer must be based ONLY on the extracted data above. Do not invent ingredients or facts.
-                If the question is in plain English, answer in plain English.
-                If the question is in Telugu script, answer in Telugu script.
                 """,
                 request.getQuery(),
                 String.join(", ", request.getCountries()),
                 contextSummary,
                 request.getQuestion());
 
-        // Prefer Ollama (local inference, no API key required)
         if (ollamaService.isAvailable()) {
             try {
                 String answer = ollamaService.generate(prompt);
                 return Map.of("answer", answer.trim());
             } catch (Exception e) {
-                log.warn("Ollama chat failed, trying Claude: {}", e.getMessage());
+                log.error("Ollama chat request failed: {}", e.getMessage(), e);
             }
         }
 
-        // Legacy fallback: Claude API
-        if (isClaudeAvailable()) {
-            try {
-                Map<String, Object> body = Map.of(
-                    "model",      "claude-sonnet-4-6",
-                    "max_tokens", 512,
-                    "messages",   List.of(Map.of("role", "user", "content", prompt))
-                );
-                String resp = webClient.post()
-                        .uri(anthropicApiUrl + "/v1/messages")
-                        .header("x-api-key",        anthropicApiKey)
-                        .header("anthropic-version", "2023-06-01")
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .bodyValue(body)
-                        .retrieve()
-                        .bodyToMono(String.class)
-                        .timeout(Duration.ofSeconds(30))
-                        .block();
-                JsonNode root   = objectMapper.readTree(resp);
-                String   answer = root.path("content").get(0).path("text").asText();
-                return Map.of("answer", answer);
-            } catch (Exception e) {
-                log.error("Claude chat request failed: {}", e.getMessage(), e);
-            }
-        }
-
-        return Map.of("answer",
-            "AI chat requires Ollama running locally (http://localhost:11434) " +
-            "or an Anthropic API key configured in ANTHROPIC_API_KEY.");
+        return Map.of("answer", "AI chat requires Ollama running locally (http://localhost:11434).");
     }
 
     // ── Helpers ───────────────────────────────────────────────────────────
@@ -321,10 +280,6 @@ public class AnalysisService {
 
     private String buildCacheKey(String query, List<String> sortedCountries) {
         return query.trim().toLowerCase() + "|" + String.join(",", sortedCountries);
-    }
-
-    private boolean isClaudeAvailable() {
-        return anthropicApiKey != null && !anthropicApiKey.isBlank();
     }
 
     @SuppressWarnings("unchecked")

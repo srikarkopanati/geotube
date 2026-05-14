@@ -9,6 +9,9 @@ import ErrorState from './ErrorState';
 import CountrySelector from './comparison/CountrySelector';
 import CompareButton from './comparison/CompareButton';
 import AnalysisLayout from './analysis/AnalysisLayout';
+import ModeSelector from './ModeSelector';
+import TimelineSlider from './TimelineSlider';
+import TrendingPanel from './TrendingPanel';
 
 export default function HomePage() {
   const { state, search, toggleCompareMode } = useApp();
@@ -16,6 +19,9 @@ export default function HomePage() {
     query, loading, error, markers, sidebarOpen, level,
     compareModeOn, comparisonSelected,
     analysisMode,
+    appMode,
+    timelineMarkers, timelineLoading,
+    trendingData,
   } = state;
 
   /* ── Analysis mode — full split-screen takeover ──────────────────── */
@@ -23,7 +29,18 @@ export default function HomePage() {
     return <AnalysisLayout />;
   }
 
-  const showCompareUI = query && !loading && markers.length > 0 && level === 'global';
+  const showCompareUI = appMode === 'explore' && query && !loading && markers.length > 0 && level === 'global';
+  const isTrending    = appMode === 'trending';
+  const isTimeline    = appMode === 'timeline';
+
+  /* Marker count shown in header — adapts to current mode */
+  const markerCount = isTimeline
+    ? timelineMarkers.length
+    : isTrending
+      ? trendingData.length
+      : markers.length;
+
+  const markerLabel = isTrending ? 'regions' : level === 'global' ? 'countries' : level === 'country' ? 'cities' : 'locations';
 
   return (
     <div className="relative w-screen h-screen overflow-hidden bg-space-black select-none">
@@ -31,8 +48,17 @@ export default function HomePage() {
       {/* ── Globe (full-page background) ─────────────────────── */}
       <GlobeView />
 
-      {/* ── Top navigation bar ───────────────────────────────── */}
-      <header className="absolute top-0 left-0 right-0 z-20 px-6 pt-5 flex items-center gap-4">
+{/* ── Top navigation bar ───────────────────────────────── */}
+      <header className="absolute top-0 left-0 right-0 z-20 px-6 pt-5 pb-3 flex items-center gap-4"
+        style={{
+          background: 'linear-gradient(180deg, rgba(5,8,16,0.85) 0%, transparent 100%)',
+          backdropFilter: 'blur(8px)',
+        }}>
+
+        {/* Thin bottom accent line */}
+        <div className="absolute bottom-0 left-0 right-0 h-px"
+          style={{ background: 'linear-gradient(90deg, transparent 0%, rgba(255,255,255,0.05) 30%, rgba(255,255,255,0.05) 70%, transparent 100%)' }} />
+
         {/* Logo */}
         <div className="flex items-center gap-2.5 flex-shrink-0">
           <div className="w-8 h-8 rounded-full bg-gradient-to-br from-red-500 to-red-700 flex items-center justify-center glow-red">
@@ -42,26 +68,28 @@ export default function HomePage() {
             </svg>
           </div>
           <span className="text-white font-bold text-xl tracking-wide">
-            Geo<span className="text-red-500">Tube</span>
+            Geo<span className="text-gradient-red">Tube</span>
           </span>
         </div>
 
-        {/* Search bar — centre */}
-        <div className="flex-1 flex justify-center">
-          <SearchBar />
+        {/* Search bar + mode selector — side by side in the centre */}
+        <div className="flex-1 flex items-center justify-center gap-3">
+          <div className={`transition-opacity duration-300 ${isTrending ? 'opacity-40 pointer-events-none' : ''}`}>
+            <SearchBar />
+          </div>
+          <ModeSelector />
         </div>
 
-        {/* Right cluster: result count + compare toggle */}
+        {/* Right cluster */}
         <div className="flex items-center gap-2 flex-shrink-0">
-          {markers.length > 0 && (
+          {markerCount > 0 && (
             <div className="glass rounded-full px-3 py-1.5 text-xs text-gray-400">
-              <span className="text-white font-semibold">{markers.length}</span>
-              {' '}
-              {level === 'global' ? 'countries' : level === 'country' ? 'cities' : 'locations'}
+              <span className="text-white font-semibold">{markerCount}</span>
+              {' '}{markerLabel}
             </div>
           )}
 
-          {/* Compare mode toggle — only at global level after a search */}
+          {/* Compare mode toggle — explore mode only */}
           {showCompareUI && (
             <button
               onClick={toggleCompareMode}
@@ -84,8 +112,8 @@ export default function HomePage() {
         </div>
       </header>
 
-      {/* ── Breadcrumb ───────────────────────────────────────── */}
-      {query && (
+      {/* ── Breadcrumb — explore mode only, left side ────────────────── */}
+      {query && appMode === 'explore' && (
         <div className="absolute top-[72px] left-6 z-20">
           <Breadcrumb />
         </div>
@@ -100,8 +128,23 @@ export default function HomePage() {
         </div>
       )}
 
-      {/* ── Hero intro (shown before first search) ────────────── */}
-      {!query && !loading && (
+      {/* ── Timeline mode label ───────────────────────────────── */}
+      {isTimeline && (
+        <div className="absolute top-[72px] left-1/2 -translate-x-1/2 z-20 pointer-events-none">
+          <div className="glass rounded-full px-4 py-2 text-xs text-cyan-300 border border-cyan-400/20">
+            {timelineLoading
+              ? 'Loading timeline data…'
+              : timelineMarkers.length > 0
+                ? `${timelineMarkers.length} countr${timelineMarkers.length === 1 ? 'y' : 'ies'} · drag the slider to travel through time`
+                : query
+                  ? `No data for ${state.selectedYear} — try a different year or search first`
+                  : 'Search a topic first, then drag the slider to explore by year'}
+          </div>
+        </div>
+      )}
+
+      {/* ── Hero intro (shown before first search, explore mode) ─────── */}
+      {!query && !loading && appMode === 'explore' && (
         <div className="absolute inset-0 flex flex-col items-center justify-center z-10 pointer-events-none">
           <div className="text-center fade-up max-w-2xl px-6">
             <h1 className="text-5xl sm:text-6xl font-bold text-white leading-tight mb-5">
@@ -130,8 +173,17 @@ export default function HomePage() {
         </div>
       )}
 
-      {/* ── Level label overlay ───────────────────────────────── */}
-      {query && !loading && markers.length > 0 && !compareModeOn && (
+      {/* ── Trending mode intro (no data yet) ────────────────────────── */}
+      {isTrending && trendingData.length === 0 && !state.trendingLoading && (
+        <div className="absolute inset-0 flex items-center justify-center z-10 pointer-events-none">
+          <div className="text-center fade-up">
+            <p className="text-gray-500 text-sm">Loading trending data…</p>
+          </div>
+        </div>
+      )}
+
+      {/* ── Level label overlay — explore only ───────────────────────── */}
+      {appMode === 'explore' && query && !loading && markers.length > 0 && !compareModeOn && (
         <div className="absolute bottom-6 left-1/2 -translate-x-1/2 z-10 pointer-events-none">
           <div className="glass rounded-full px-5 py-2 text-xs text-gray-400 text-center">
             {level === 'global' && 'Click a country to zoom in'}
@@ -145,8 +197,14 @@ export default function HomePage() {
       {showCompareUI && compareModeOn && <CountrySelector />}
       {showCompareUI && compareModeOn && comparisonSelected.length >= 2 && <CompareButton />}
 
-      {/* ── Video sidebar ─────────────────────────────────────── */}
-      {sidebarOpen && !compareModeOn && <VideoSidebar />}
+      {/* ── Video sidebar (explore mode) ──────────────────────── */}
+      {sidebarOpen && appMode === 'explore' && !compareModeOn && <VideoSidebar />}
+
+      {/* ── Trending panel (trending mode) ────────────────────── */}
+      {isTrending && <TrendingPanel />}
+
+      {/* ── Timeline slider (timeline mode) ──────────────────── */}
+      {isTimeline && <TimelineSlider />}
 
       {/* ── Overlays ─────────────────────────────────────────── */}
       {loading && <Loader message={state.loadingMessage} />}
