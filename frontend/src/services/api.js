@@ -61,3 +61,19 @@ export const analyzeChat = async (query, countries, question, analysisContext) =
   }, { timeout: 120000 }); // Ollama local inference can take 60–90s
   return data;
 };
+
+// ── Time Travel endpoints ─────────────────────────────────────────────────
+
+/** GET /api/timeline?query=...&year=... — country hotspots for a specific year */
+export const getTimeline = async (query, year) => {
+  const { data } = await client.get('/api/timeline', { params: { query, year } });
+  return data;
+};
+
+// ── Trending Live endpoints ───────────────────────────────────────────────
+
+/** GET /api/trending — current trending hotspots for all monitored regions */
+export const getTrending = async () => {
+  const { data } = await client.get('/api/trending');
+  return data;
+};
