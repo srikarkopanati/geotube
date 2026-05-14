@@ -21,62 +21,76 @@ public class Video {
     @Indexed
     private String query;
 
+    @Indexed
     private String videoId;
+
     private String title;
     private String description;
     private String thumbnail;
     private String channelId;
 
+    // Country-level coordinates (from static mapping, not GPS)
     private Double latitude;
     private Double longitude;
 
     @Indexed
     private String country;
 
-    @Indexed
+    // Kept for API compatibility; set to country name in NLP-inferred videos
     private String city;
 
     private String publishedAt;
+
+    // NLP inference metadata
+    private String  inferenceSource;  // "direct_mention" | "city_dictionary"
+    private Double  confidence;       // 0.9 – 1.0
+
     private LocalDateTime cachedAt;
 
     public Video() {}
 
-    public String getId()                    { return id; }
-    public void   setId(String id)           { this.id = id; }
+    public String getId()                       { return id; }
+    public void   setId(String id)              { this.id = id; }
 
-    public String getQuery()                 { return query; }
-    public void   setQuery(String query)     { this.query = query; }
+    public String getQuery()                    { return query; }
+    public void   setQuery(String v)            { this.query = v; }
 
-    public String getVideoId()               { return videoId; }
-    public void   setVideoId(String v)       { this.videoId = v; }
+    public String getVideoId()                  { return videoId; }
+    public void   setVideoId(String v)          { this.videoId = v; }
 
-    public String getTitle()                 { return title; }
-    public void   setTitle(String v)         { this.title = v; }
+    public String getTitle()                    { return title; }
+    public void   setTitle(String v)            { this.title = v; }
 
-    public String getDescription()           { return description; }
-    public void   setDescription(String v)   { this.description = v; }
+    public String getDescription()              { return description; }
+    public void   setDescription(String v)      { this.description = v; }
 
-    public String getThumbnail()             { return thumbnail; }
-    public void   setThumbnail(String v)     { this.thumbnail = v; }
+    public String getThumbnail()                { return thumbnail; }
+    public void   setThumbnail(String v)        { this.thumbnail = v; }
 
-    public String getChannelId()             { return channelId; }
-    public void   setChannelId(String v)     { this.channelId = v; }
+    public String getChannelId()                { return channelId; }
+    public void   setChannelId(String v)        { this.channelId = v; }
 
-    public Double getLatitude()              { return latitude; }
-    public void   setLatitude(Double v)      { this.latitude = v; }
+    public Double getLatitude()                 { return latitude; }
+    public void   setLatitude(Double v)         { this.latitude = v; }
 
-    public Double getLongitude()             { return longitude; }
-    public void   setLongitude(Double v)     { this.longitude = v; }
+    public Double getLongitude()                { return longitude; }
+    public void   setLongitude(Double v)        { this.longitude = v; }
 
-    public String getCountry()               { return country; }
-    public void   setCountry(String v)       { this.country = v; }
+    public String getCountry()                  { return country; }
+    public void   setCountry(String v)          { this.country = v; }
 
-    public String getCity()                  { return city; }
-    public void   setCity(String v)          { this.city = v; }
+    public String getCity()                     { return city; }
+    public void   setCity(String v)             { this.city = v; }
 
-    public String getPublishedAt()           { return publishedAt; }
-    public void   setPublishedAt(String v)   { this.publishedAt = v; }
+    public String getPublishedAt()              { return publishedAt; }
+    public void   setPublishedAt(String v)      { this.publishedAt = v; }
 
-    public LocalDateTime getCachedAt()           { return cachedAt; }
+    public String getInferenceSource()          { return inferenceSource; }
+    public void   setInferenceSource(String v)  { this.inferenceSource = v; }
+
+    public Double getConfidence()               { return confidence; }
+    public void   setConfidence(Double v)       { this.confidence = v; }
+
+    public LocalDateTime getCachedAt()              { return cachedAt; }
     public void          setCachedAt(LocalDateTime v) { this.cachedAt = v; }
 }
