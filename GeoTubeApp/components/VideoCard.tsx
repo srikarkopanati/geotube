@@ -1,6 +1,7 @@
 import React from 'react';
-import { View, Text, TouchableOpacity, Image, StyleSheet } from 'react-native';
+import { Image, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { useApp } from '../context/AppContext';
+import { getVideoThumbnail } from './videoHelpers';
 
 interface VideoCardProps {
   video: any;
@@ -9,14 +10,17 @@ interface VideoCardProps {
 
 export default function VideoCard({ video, isActive }: VideoCardProps) {
   const { openVideo } = useApp();
-
-  const handlePress = () => {
-    openVideo(video);
-  };
+  const thumbnail = getVideoThumbnail(video);
 
   return (
-    <TouchableOpacity onPress={handlePress} style={[styles.container, isActive && styles.active]}>
-      <Image source={{ uri: video.thumbnailUrl }} style={styles.thumbnail} />
+    <TouchableOpacity onPress={() => openVideo(video)} style={[styles.container, isActive && styles.active]}>
+      {thumbnail ? (
+        <Image source={{ uri: thumbnail }} style={styles.thumbnail} />
+      ) : (
+        <View style={[styles.thumbnail, styles.thumbnailFallback]}>
+          <Text style={styles.thumbnailFallbackText}>No thumbnail</Text>
+        </View>
+      )}
       <View style={styles.content}>
         <Text style={styles.title} numberOfLines={2}>
           {video.title}
@@ -25,8 +29,8 @@ export default function VideoCard({ video, isActive }: VideoCardProps) {
           {video.channelTitle}
         </Text>
         <View style={styles.meta}>
-          <Text style={styles.views}>{video.viewCount?.toLocaleString()} views</Text>
-          <Text style={styles.duration}>{video.duration}</Text>
+          <Text style={styles.views}>{video.viewCount?.toLocaleString?.() || video.viewCount || 0} views</Text>
+          {!!video.duration && <Text style={styles.duration}>{video.duration}</Text>}
         </View>
       </View>
       {isActive && (
@@ -56,6 +60,16 @@ const styles = StyleSheet.create({
     width: 80,
     height: 60,
     borderRadius: 8,
+    backgroundColor: '#111827',
+  },
+  thumbnailFallback: {
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  thumbnailFallbackText: {
+    color: '#6b7280',
+    fontSize: 9,
+    fontWeight: '600',
   },
   content: {
     flex: 1,

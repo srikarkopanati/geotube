@@ -153,6 +153,19 @@ export default function GlobeView({ containerWidth, analysisGlobe = false }: Glo
             [[112,-10],[154,-22],[146,-42],[118,-36]],
             [[-48,70],[-22,76],[-18,60],[-42,58]]
           ];
+          const stars = Array.from({ length: 170 }, (_, i) => ({
+            x: (Math.sin(i * 91.7) * 0.5 + 0.5),
+            y: (Math.sin(i * 37.3) * 0.5 + 0.5),
+            r: 0.35 + ((i * 17) % 9) / 10,
+            a: 0.28 + ((i * 23) % 7) / 10
+          }));
+          const earthImage = new Image();
+          earthImage.crossOrigin = 'anonymous';
+          earthImage.src = 'https://unpkg.com/three-globe/example/img/earth-blue-marble.jpg';
+
+          const skyImage = new Image();
+          skyImage.crossOrigin = 'anonymous';
+          skyImage.src = 'https://unpkg.com/three-globe/example/img/night-sky.png';
 
           function resize() {
             canvas.width = Math.floor(window.innerWidth * dpr);
@@ -166,6 +179,19 @@ export default function GlobeView({ containerWidth, analysisGlobe = false }: Glo
 
           function selected(marker) {
             return comparisonSelected.some(item => item.label === marker.label);
+          }
+
+          function imageReady(image) {
+            return image && image.complete && image.naturalWidth > 0;
+          }
+
+          function drawCover(image, x, y, w, h) {
+            const scale = Math.max(w / image.naturalWidth, h / image.naturalHeight);
+            const sw = w / scale;
+            const sh = h / scale;
+            const sx = (image.naturalWidth - sw) / 2;
+            const sy = (image.naturalHeight - sh) / 2;
+            ctx.drawImage(image, sx, sy, sw, sh, x, y, w, h);
           }
 
           function normalizeLng(lng) {
@@ -212,10 +238,34 @@ export default function GlobeView({ containerWidth, analysisGlobe = false }: Glo
             });
           }
 
+          function drawStars(w, h) {
+            if (imageReady(skyImage)) {
+              drawCover(skyImage, 0, 0, w, h);
+            } else {
+              ctx.fillStyle = '#02040a';
+              ctx.fillRect(0, 0, w, h);
+            }
+            const halo = ctx.createRadialGradient(w * 0.5, h * 0.45, 0, w * 0.5, h * 0.45, Math.max(w, h) * 0.58);
+            halo.addColorStop(0, 'rgba(37, 99, 235, 0.2)');
+            halo.addColorStop(0.45, 'rgba(14, 165, 233, 0.06)');
+            halo.addColorStop(1, 'rgba(0, 0, 0, 0)');
+            ctx.fillStyle = halo;
+            ctx.fillRect(0, 0, w, h);
+
+            stars.forEach((star, index) => {
+              const twinkle = 0.55 + Math.sin(performance.now() / 900 + index) * 0.18;
+              ctx.beginPath();
+              ctx.arc(star.x * w, star.y * h, star.r, 0, Math.PI * 2);
+              ctx.fillStyle = 'rgba(226, 232, 240,' + Math.min(0.9, star.a * twinkle) + ')';
+              ctx.fill();
+            });
+          }
+
           function drawGlobe(cx, cy, radius) {
-            const glow = ctx.createRadialGradient(cx - radius * 0.35, cy - radius * 0.38, radius * 0.1, cx, cy, radius);
-            glow.addColorStop(0, '#1e3a8a');
-            glow.addColorStop(0.52, '#071b3d');
+            const glow = ctx.createRadialGradient(cx - radius * 0.42, cy - radius * 0.45, radius * 0.08, cx, cy, radius);
+            glow.addColorStop(0, '#4fa7ff');
+            glow.addColorStop(0.2, '#1d4ed8');
+            glow.addColorStop(0.56, '#082b63');
             glow.addColorStop(1, '#020617');
 
             ctx.save();
@@ -224,6 +274,31 @@ export default function GlobeView({ containerWidth, analysisGlobe = false }: Glo
             ctx.fillStyle = glow;
             ctx.fill();
             ctx.clip();
+
+            if (imageReady(earthImage)) {
+              const textureW = radius * 4.08;
+              const textureH = radius * 2.08;
+              const offsetX = (normalizeLng(centerLng) / 360) * textureW;
+              const offsetY = clamp(centerLat / 90, -0.72, 0.72) * radius * 0.52;
+              const y = cy - textureH / 2 + offsetY;
+              let x = cx - textureW / 2 - offsetX;
+              while (x > cx - radius) x -= textureW;
+              while (x + textureW < cx + radius) x += textureW;
+              for (let i = -1; i <= 1; i++) {
+                ctx.drawImage(earthImage, x + textureW * i, y, textureW, textureH);
+              }
+            }
+
+            for (let i = 0; i < 42; i++) {
+              const y = cy - radius + (i / 41) * radius * 2;
+              const bandWidth = Math.sqrt(Math.max(0, radius * radius - Math.pow(y - cy, 2))) * 2;
+              ctx.beginPath();
+              ctx.moveTo(cx - bandWidth / 2, y);
+              ctx.bezierCurveTo(cx - bandWidth * 0.18, y - 8, cx + bandWidth * 0.15, y + 7, cx + bandWidth / 2, y);
+              ctx.strokeStyle = i % 3 === 0 ? 'rgba(147,197,253,0.08)' : 'rgba(255,255,255,0.025)';
+              ctx.lineWidth = 1;
+              ctx.stroke();
+            }
 
             ctx.strokeStyle = 'rgba(125, 211, 252, 0.13)';
             ctx.lineWidth = 1;
@@ -257,20 +332,40 @@ export default function GlobeView({ containerWidth, analysisGlobe = false }: Glo
               ctx.stroke();
             }
 
-            ctx.beginPath();
-            land.forEach(region => pathRegion(region, radius, cx, cy));
-            ctx.fillStyle = 'rgba(34, 197, 94, 0.28)';
-            ctx.strokeStyle = 'rgba(125, 211, 252, 0.24)';
-            ctx.lineWidth = 1;
-            ctx.fill();
-            ctx.stroke();
+            if (!imageReady(earthImage)) {
+              ctx.beginPath();
+              land.forEach(region => pathRegion(region, radius, cx, cy));
+              const landGradient = ctx.createLinearGradient(cx - radius * 0.6, cy - radius * 0.5, cx + radius * 0.5, cy + radius * 0.5);
+              landGradient.addColorStop(0, 'rgba(187, 151, 86, 0.78)');
+              landGradient.addColorStop(0.42, 'rgba(57, 129, 67, 0.72)');
+              landGradient.addColorStop(1, 'rgba(22, 101, 52, 0.68)');
+              ctx.fillStyle = landGradient;
+              ctx.strokeStyle = 'rgba(190, 242, 100, 0.22)';
+              ctx.lineWidth = 1;
+              ctx.fill();
+              ctx.stroke();
+            }
+
+            const shadow = ctx.createRadialGradient(cx - radius * 0.55, cy - radius * 0.52, radius * 0.1, cx + radius * 0.1, cy + radius * 0.08, radius * 1.08);
+            shadow.addColorStop(0, 'rgba(255,255,255,0.16)');
+            shadow.addColorStop(0.42, 'rgba(255,255,255,0.02)');
+            shadow.addColorStop(0.76, 'rgba(2,6,23,0.28)');
+            shadow.addColorStop(1, 'rgba(0,0,0,0.62)');
+            ctx.fillStyle = shadow;
+            ctx.fillRect(cx - radius, cy - radius, radius * 2, radius * 2);
 
             ctx.restore();
 
             ctx.beginPath();
             ctx.arc(cx, cy, radius, 0, Math.PI * 2);
-            ctx.strokeStyle = 'rgba(125, 211, 252, 0.45)';
+            ctx.strokeStyle = 'rgba(147, 197, 253, 0.62)';
             ctx.lineWidth = 1.3;
+            ctx.stroke();
+
+            ctx.beginPath();
+            ctx.arc(cx, cy, radius + 2, 0, Math.PI * 2);
+            ctx.strokeStyle = 'rgba(56, 189, 248, 0.18)';
+            ctx.lineWidth = 7;
             ctx.stroke();
           }
 
@@ -312,11 +407,12 @@ export default function GlobeView({ containerWidth, analysisGlobe = false }: Glo
             const w = window.innerWidth;
             const h = window.innerHeight;
             ctx.clearRect(0, 0, w, h);
+            drawStars(w, h);
 
-            const baseRadius = Math.min(w, h) * 0.37;
+            const baseRadius = Math.min(w, h) * 0.42;
             const radius = baseRadius * scale;
             const cx = w / 2;
-            const cy = h * 0.52;
+            const cy = h * 0.54;
 
             drawGlobe(cx, cy, radius);
             drawMarkers(cx, cy, radius, performance.now());

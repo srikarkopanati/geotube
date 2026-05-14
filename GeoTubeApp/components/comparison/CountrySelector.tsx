@@ -29,7 +29,7 @@ export default function CountrySelector() {
 const styles = StyleSheet.create({
   container: {
     position: 'absolute',
-    bottom: 100,
+    bottom: 96,
     left: 0,
     right: 0,
     zIndex: 20,

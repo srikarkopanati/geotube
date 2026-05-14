@@ -99,14 +99,18 @@ export default function HomePage() {
       {/* ── Top navigation bar ───────────────────────────────── */}
       <View style={styles.header}>
         {/* Logo */}
-        <View style={styles.logo}>
+        <TouchableOpacity
+          onPress={() => dispatch({ type: 'RESET' })}
+          style={styles.logo}
+          activeOpacity={0.82}
+        >
           <View style={styles.logoIcon}>
             <Text style={styles.logoIconText}>▶</Text>
           </View>
           <Text style={styles.logoText}>
             Geo<Text style={styles.logoTextRed}>Tube</Text>
           </Text>
-        </View>
+        </TouchableOpacity>
 
         {/* Search bar — centre */}
         <View style={styles.searchContainer}>
@@ -144,7 +148,7 @@ export default function HomePage() {
       </View>
 
       {/* ── Breadcrumb ───────────────────────────────────────── */}
-      {query && (
+      {query && !compareModeOn && (
         <View style={styles.breadcrumb}>
           <Breadcrumb />
         </View>
@@ -162,6 +166,7 @@ export default function HomePage() {
       {/* ── Hero intro (shown before first search) ────────────── */}
       {!query && !loading && (
         <View style={styles.hero}>
+          <View style={styles.heroScrim} />
           <Text style={styles.heroTitle}>
             Explore the World{"'"}s{'\n'}
             <Text style={styles.heroTitleRed}>
@@ -221,11 +226,11 @@ const styles = StyleSheet.create({
     left: 0,
     right: 0,
     zIndex: 20,
-    paddingHorizontal: 24,
-    paddingTop: 40,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 16,
+    paddingHorizontal: 22,
+    paddingTop: 48,
+    flexDirection: 'column',
+    alignItems: 'stretch',
+    gap: 10,
   },
   logo: {
     flexDirection: 'row',
@@ -256,10 +261,12 @@ const styles = StyleSheet.create({
     color: '#dc2626',
   },
   searchContainer: {
-    flex: 1,
-    justifyContent: 'center',
+    width: '100%',
   },
   headerRight: {
+    position: 'absolute',
+    top: 48,
+    right: 22,
     flexDirection: 'row',
     alignItems: 'center',
     gap: 8,
@@ -308,14 +315,15 @@ const styles = StyleSheet.create({
   },
   breadcrumb: {
     position: 'absolute',
-    top: 88,
+    top: 150,
     left: 24,
     zIndex: 20,
   },
   compareHint: {
     position: 'absolute',
-    top: 88,
-    left: width / 2 - 150,
+    top: 150,
+    left: 24,
+    right: 24,
     zIndex: 20,
     backgroundColor: 'rgba(0, 208, 255, 0.1)',
     borderRadius: 20,
@@ -323,6 +331,7 @@ const styles = StyleSheet.create({
     paddingVertical: 8,
     borderWidth: 1,
     borderColor: 'rgba(0, 208, 255, 0.3)',
+    alignItems: 'center',
   },
   compareHintText: {
     color: '#00d0ff',
@@ -334,38 +343,55 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     zIndex: 10,
+    paddingHorizontal: 18,
+  },
+  heroScrim: {
+    position: 'absolute',
+    width: '92%',
+    maxWidth: 390,
+    height: 245,
+    borderRadius: 18,
+    backgroundColor: 'rgba(0,0,0,0.18)',
   },
   heroTitle: {
-    fontSize: 36,
+    fontSize: 32,
     fontWeight: 'bold',
     color: 'white',
     textAlign: 'center',
-    lineHeight: 44,
-    marginBottom: 20,
+    lineHeight: 39,
+    marginBottom: 16,
+    textShadowColor: 'rgba(0,0,0,0.65)',
+    textShadowOffset: { width: 0, height: 2 },
+    textShadowRadius: 8,
   },
   heroTitleRed: {
     color: '#dc2626',
   },
   heroSubtitle: {
     color: '#9ca3af',
-    fontSize: 16,
+    fontSize: 15,
     textAlign: 'center',
-    marginBottom: 32,
-    maxWidth: 300,
+    marginBottom: 24,
+    maxWidth: 330,
+    lineHeight: 21,
+    textShadowColor: 'rgba(0,0,0,0.65)',
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 6,
   },
   heroTags: {
     flexDirection: 'row',
     flexWrap: 'wrap',
     gap: 8,
     justifyContent: 'center',
+    maxWidth: 360,
   },
   heroTag: {
-    backgroundColor: 'rgba(255,255,255,0.1)',
+    backgroundColor: 'rgba(255,255,255,0.14)',
     borderRadius: 20,
-    paddingHorizontal: 16,
+    paddingHorizontal: 14,
     paddingVertical: 8,
     borderWidth: 1,
-    borderColor: 'transparent',
+    borderColor: 'rgba(255,255,255,0.08)',
   },
   heroTagText: {
     color: '#9ca3af',

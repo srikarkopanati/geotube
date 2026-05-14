@@ -17,8 +17,7 @@ const styles = StyleSheet.create({
   button: {
     position: 'absolute',
     bottom: 24,
-    left: '50%',
-    transform: [{ translateX: -75 }],
+    alignSelf: 'center',
     flexDirection: 'row',
     alignItems: 'center',
     gap: 8,
@@ -31,6 +30,8 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.5,
     shadowRadius: 10,
     elevation: 10,
+    minWidth: 210,
+    justifyContent: 'center',
   },
   buttonText: {
     color: 'white',

@@ -1,5 +1,5 @@
-import React, { useState } from 'react';
-import { View, Text, TextInput, TouchableOpacity, StyleSheet } from 'react-native';
+import React, { useEffect, useState } from 'react';
+import { StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import { useApp } from '../context/AppContext';
 
 export default function SearchBar() {
@@ -7,10 +7,13 @@ export default function SearchBar() {
   const { query } = state;
   const [inputValue, setInputValue] = useState(query);
 
+  useEffect(() => {
+    setInputValue(query);
+  }, [query]);
+
   const handleSubmit = () => {
-    if (inputValue.trim()) {
-      search(inputValue.trim());
-    }
+    const nextQuery = inputValue.trim();
+    if (nextQuery) search(nextQuery);
   };
 
   return (
@@ -26,7 +29,7 @@ export default function SearchBar() {
       />
       <TouchableOpacity onPress={handleSubmit} style={styles.button}>
         <View style={styles.icon}>
-          <Text style={styles.iconText}>🔍</Text>
+          <Text style={styles.iconText}>⌕</Text>
         </View>
       </TouchableOpacity>
     </View>
@@ -35,35 +38,38 @@ export default function SearchBar() {
 
 const styles = StyleSheet.create({
   container: {
+    width: '100%',
+    minHeight: 52,
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: 'rgba(255,255,255,0.1)',
-    borderRadius: 25,
+    borderRadius: 26,
     borderWidth: 1,
     borderColor: 'rgba(255,255,255,0.2)',
     paddingHorizontal: 16,
-    paddingVertical: 8,
-    maxWidth: 400,
+    paddingVertical: 6,
   },
   input: {
     flex: 1,
     color: 'white',
     fontSize: 16,
-    paddingVertical: 8,
+    paddingVertical: 7,
     paddingHorizontal: 8,
   },
   button: {
     marginLeft: 8,
   },
   icon: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
+    width: 34,
+    height: 34,
+    borderRadius: 17,
     backgroundColor: '#dc2626',
     alignItems: 'center',
     justifyContent: 'center',
   },
   iconText: {
-    fontSize: 16,
+    color: 'white',
+    fontSize: 18,
+    fontWeight: '800',
   },
 });

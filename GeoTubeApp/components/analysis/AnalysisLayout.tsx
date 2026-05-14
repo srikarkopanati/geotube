@@ -8,10 +8,10 @@ import ProgressIndicator from './ProgressIndicator';
 import VideoPicker from './VideoPicker';
 
 const { width, height } = Dimensions.get('window');
-const GLOBE_PANEL_HEIGHT = Math.floor(height * 0.54);
+const GLOBE_PANEL_HEIGHT = Math.max(260, Math.floor(height * 0.48));
 
 export default function AnalysisLayout() {
-  const { state, exitAnalysisMode } = useApp();
+  const { state, dispatch, exitAnalysisMode, setAnalysisActiveVideo } = useApp();
   const {
     analysisLoading,
     analysisError,
@@ -33,17 +33,25 @@ export default function AnalysisLayout() {
             <Text style={styles.backIcon}>←</Text>
           </TouchableOpacity>
 
-          <View style={styles.logoContainer}>
+          <TouchableOpacity
+            onPress={() => dispatch({ type: 'RESET' })}
+            style={styles.logoContainer}
+            activeOpacity={0.82}
+          >
             <Text style={styles.logoText}>
               Geo<Text style={styles.logoTextRed}>Tube</Text>
             </Text>
             <Text style={styles.separator}>·</Text>
             <Text style={styles.queryText} numberOfLines={1}>{'"'}{query}{'"'}</Text>
-          </View>
+          </TouchableOpacity>
 
-          <View style={styles.modeBadge}>
-            <Text style={styles.modeText}>Analysis</Text>
-          </View>
+          <TouchableOpacity
+            onPress={exitAnalysisMode}
+            style={styles.closeAnalysisButton}
+            activeOpacity={0.82}
+          >
+            <Text style={styles.closeAnalysisText}>x</Text>
+          </TouchableOpacity>
         </View>
 
         {comparisonSelected.length > 0 && (
@@ -65,6 +73,12 @@ export default function AnalysisLayout() {
                 <Text style={styles.playerTitle} numberOfLines={1}>
                   {analysisActiveVideo.title}
                 </Text>
+                <TouchableOpacity
+                  onPress={() => setAnalysisActiveVideo(null)}
+                  style={styles.playerCloseButton}
+                >
+                  <Text style={styles.playerCloseText}>×</Text>
+                </TouchableOpacity>
               </View>
               <View style={styles.playerContent}>
                 <YouTubePlayer
@@ -78,11 +92,6 @@ export default function AnalysisLayout() {
 
         {analysisData && <VideoPicker />}
 
-        {analysisData && !analysisActiveVideo && (
-          <View style={styles.hint}>
-            <Text style={styles.hintText}>Select a video below to watch it here</Text>
-          </View>
-        )}
       </View>
 
       <View style={styles.dashboardPanel}>
@@ -165,6 +174,22 @@ const styles = StyleSheet.create({
     fontSize: 13,
     flex: 1,
   },
+  closeAnalysisButton: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: 'rgba(0,0,0,0.36)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.28)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  closeAnalysisText: {
+    color: 'white',
+    fontSize: 18,
+    lineHeight: 20,
+    fontWeight: '800',
+  },
   modeBadge: {
     backgroundColor: 'rgba(0, 208, 255, 0.1)',
     borderWidth: 1,
@@ -182,7 +207,7 @@ const styles = StyleSheet.create({
     position: 'absolute',
     left: 14,
     right: 14,
-    bottom: 150,
+    bottom: 145,
     zIndex: 10,
   },
   chipsContainer: {
@@ -205,10 +230,10 @@ const styles = StyleSheet.create({
   },
   videoPlayer: {
     position: 'absolute',
-    left: 16,
-    bottom: 148,
+    left: 12,
+    right: 12,
+    bottom: 132,
     zIndex: 10,
-    width: Math.min(width - 32, 320),
   },
   playerContainer: {
     borderRadius: 12,
@@ -223,6 +248,9 @@ const styles = StyleSheet.create({
     elevation: 8,
   },
   playerHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
     paddingHorizontal: 12,
     paddingVertical: 8,
     backgroundColor: 'rgba(0,0,0,0.4)',
@@ -231,9 +259,23 @@ const styles = StyleSheet.create({
     color: 'white',
     fontSize: 12,
     fontWeight: '600',
+    flex: 1,
   },
   playerContent: {
-    height: 140,
+    height: 150,
+  },
+  playerCloseButton: {
+    width: 26,
+    height: 26,
+    borderRadius: 13,
+    backgroundColor: 'rgba(255,255,255,0.12)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  playerCloseText: {
+    color: 'white',
+    fontSize: 19,
+    lineHeight: 22,
   },
   videoPlaceholder: {
     flex: 1,
@@ -252,22 +294,6 @@ const styles = StyleSheet.create({
     fontSize: 12,
     marginTop: 4,
     textAlign: 'center',
-  },
-  hint: {
-    position: 'absolute',
-    bottom: 154,
-    left: 0,
-    right: 0,
-    alignItems: 'center',
-    zIndex: 10,
-  },
-  hintText: {
-    backgroundColor: 'rgba(255,255,255,0.1)',
-    borderRadius: 16,
-    paddingHorizontal: 16,
-    paddingVertical: 6,
-    color: '#9ca3af',
-    fontSize: 12,
   },
   dashboardPanel: {
     flex: 1,
