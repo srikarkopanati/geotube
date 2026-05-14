@@ -20,6 +20,8 @@ client.interceptors.response.use(
   }
 );
 
+// ── Existing endpoints (unchanged) ────────────────────────────────────────
+
 export const search = async query => {
   const { data } = await client.post('/api/search', { query });
   return data;
@@ -36,5 +38,26 @@ export const getVideos = async (city, query) => {
   const { data } = await client.get(`/api/city/${encodeURIComponent(city)}`, {
     params: { query },
   });
+  return data;
+};
+
+// ── Comparative Analysis endpoints (new) ──────────────────────────────────
+
+/** POST /api/analyze — full comparative dashboard */
+export const analyze = async (query, countries) => {
+  const { data } = await client.post('/api/analyze', { query, countries }, {
+    timeout: 120000, // analysis can take up to 2 min (transcript + AI extraction)
+  });
+  return data;
+};
+
+/** POST /api/analyze/chat — Ask AI about the comparison */
+export const analyzeChat = async (query, countries, question, analysisContext) => {
+  const { data } = await client.post('/api/analyze/chat', {
+    query,
+    countries,
+    question,
+    analysisContext: analysisContext || null,
+  }, { timeout: 120000 }); // Ollama local inference can take 60–90s
   return data;
 };

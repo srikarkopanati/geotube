@@ -6,10 +6,24 @@ import VideoSidebar from './VideoSidebar';
 import Breadcrumb from './Breadcrumb';
 import Loader from './Loader';
 import ErrorState from './ErrorState';
+import CountrySelector from './comparison/CountrySelector';
+import CompareButton from './comparison/CompareButton';
+import AnalysisLayout from './analysis/AnalysisLayout';
 
 export default function HomePage() {
-  const { state, search } = useApp();
-  const { query, loading, error, markers, sidebarOpen, level } = state;
+  const { state, search, toggleCompareMode } = useApp();
+  const {
+    query, loading, error, markers, sidebarOpen, level,
+    compareModeOn, comparisonSelected,
+    analysisMode,
+  } = state;
+
+  /* ── Analysis mode — full split-screen takeover ──────────────────── */
+  if (analysisMode) {
+    return <AnalysisLayout />;
+  }
+
+  const showCompareUI = query && !loading && markers.length > 0 && level === 'global';
 
   return (
     <div className="relative w-screen h-screen overflow-hidden bg-space-black select-none">
@@ -37,14 +51,37 @@ export default function HomePage() {
           <SearchBar />
         </div>
 
-        {/* Result count pill */}
-        {markers.length > 0 && (
-          <div className="glass rounded-full px-3 py-1.5 text-xs text-gray-400 flex-shrink-0">
-            <span className="text-white font-semibold">{markers.length}</span>
-            {' '}
-            {level === 'global' ? 'countries' : level === 'country' ? 'cities' : 'locations'}
-          </div>
-        )}
+        {/* Right cluster: result count + compare toggle */}
+        <div className="flex items-center gap-2 flex-shrink-0">
+          {markers.length > 0 && (
+            <div className="glass rounded-full px-3 py-1.5 text-xs text-gray-400">
+              <span className="text-white font-semibold">{markers.length}</span>
+              {' '}
+              {level === 'global' ? 'countries' : level === 'country' ? 'cities' : 'locations'}
+            </div>
+          )}
+
+          {/* Compare mode toggle — only at global level after a search */}
+          {showCompareUI && (
+            <button
+              onClick={toggleCompareMode}
+              title={compareModeOn ? 'Exit Compare Mode' : 'Select countries to compare'}
+              className={`
+                glass rounded-full px-3 py-1.5 text-xs font-semibold transition-all duration-200
+                flex items-center gap-1.5
+                ${compareModeOn
+                  ? 'border border-cyan-400/60 text-cyan-300 glow-blue'
+                  : 'border border-transparent text-gray-400 hover:text-white hover:border-cyan-400/30'}
+              `}
+            >
+              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+                  d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
+              </svg>
+              {compareModeOn ? 'Exit Compare' : 'Compare'}
+            </button>
+          )}
+        </div>
       </header>
 
       {/* ── Breadcrumb ───────────────────────────────────────── */}
@@ -54,7 +91,16 @@ export default function HomePage() {
         </div>
       )}
 
-      {/* ── Hero intro (shown before first search) ───────────── */}
+      {/* ── Compare mode hint ─────────────────────────────────── */}
+      {showCompareUI && compareModeOn && (
+        <div className="absolute top-[72px] left-1/2 -translate-x-1/2 z-20 pointer-events-none">
+          <div className="glass rounded-full px-4 py-2 text-xs text-cyan-300 border border-cyan-400/30">
+            Click country markers to select for comparison (max 4)
+          </div>
+        </div>
+      )}
+
+      {/* ── Hero intro (shown before first search) ────────────── */}
       {!query && !loading && (
         <div className="absolute inset-0 flex flex-col items-center justify-center z-10 pointer-events-none">
           <div className="text-center fade-up max-w-2xl px-6">
@@ -67,8 +113,6 @@ export default function HomePage() {
             <p className="text-gray-400 text-lg mb-10 max-w-md mx-auto">
               Search any topic and discover geotagged videos on an interactive 3D globe.
             </p>
-
-            {/* Quick-search chips */}
             <div className="flex flex-wrap gap-2 justify-center pointer-events-auto">
               {['street food', 'travel vlog', 'walking tour', 'nature', 'festivals'].map(tag => (
                 <button
@@ -87,7 +131,7 @@ export default function HomePage() {
       )}
 
       {/* ── Level label overlay ───────────────────────────────── */}
-      {query && !loading && markers.length > 0 && (
+      {query && !loading && markers.length > 0 && !compareModeOn && (
         <div className="absolute bottom-6 left-1/2 -translate-x-1/2 z-10 pointer-events-none">
           <div className="glass rounded-full px-5 py-2 text-xs text-gray-400 text-center">
             {level === 'global' && 'Click a country to zoom in'}
@@ -97,8 +141,12 @@ export default function HomePage() {
         </div>
       )}
 
-      {/* ── Video sidebar ────────────────────────────────────── */}
-      {sidebarOpen && <VideoSidebar />}
+      {/* ── Comparison selection chips + connect button ───────── */}
+      {showCompareUI && compareModeOn && <CountrySelector />}
+      {showCompareUI && compareModeOn && comparisonSelected.length >= 2 && <CompareButton />}
+
+      {/* ── Video sidebar ─────────────────────────────────────── */}
+      {sidebarOpen && !compareModeOn && <VideoSidebar />}
 
       {/* ── Overlays ─────────────────────────────────────────── */}
       {loading && <Loader message={state.loadingMessage} />}

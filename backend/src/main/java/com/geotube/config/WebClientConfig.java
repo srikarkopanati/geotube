@@ -14,7 +14,7 @@ public class WebClientConfig {
     @Bean
     public WebClient webClient() {
         HttpClient httpClient = HttpClient.create()
-                .responseTimeout(Duration.ofSeconds(30));
+                .responseTimeout(Duration.ofSeconds(180)); // Ollama local inference needs up to 3 min
 
         return WebClient.builder()
                 .clientConnector(new ReactorClientHttpConnector(httpClient))
