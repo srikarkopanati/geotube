@@ -20,7 +20,7 @@ Discover and analyze YouTube videos by geographic location. Search any topic and
 ## 1. Clone the Repository
 
 ```bash
-git clone <repo-url>
+git clone git@github.com:srikarkopanati/geotube.git
 cd ise_project
 ```
 
